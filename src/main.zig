@@ -5,12 +5,10 @@ const display = @import("core/display.zig");
 const input = @import("core/input.zig");
 const sound = @import("core/sound.zig");
 
-const INSTRUCTIONS_PER_FRAME = 10;
-
 pub fn main(init: std.process.Init) !void {
     // Parse ROM path from args
     var args_iter = init.minimal.args.iterate();
-    _ = args_iter.skip(); // skip executable name
+    _ = args_iter.skip();
     const rom_path = args_iter.next() orelse {
         std.log.err("Usage: chip8 <rom_path>", .{});
         return;
@@ -34,9 +32,35 @@ pub fn main(init: std.process.Init) !void {
     sound.init();
     defer sound.deinit();
 
+    // Emulator state
+    var state: display.EmulatorState = .running;
+    var instructions_per_frame: i32 = 10; // ~600 Hz at 60fps
+    var mem_scroll: i32 = 0x20; // Start scrolled to 0x200 area
+
     // Main loop
     while (!rl.windowShouldClose()) {
-        // Input
+        // Debug controls
+        if (rl.isKeyPressed(.space)) {
+            state = if (state == .running) .paused else .running;
+        }
+        if (rl.isKeyPressed(.n) and state == .paused) {
+            state = .stepping;
+        }
+        if (rl.isKeyPressed(.backspace)) {
+            chip8 = Chip8.init();
+            chip8.cpu.seedRng(@as(u64, @truncate(@intFromPtr(&chip8))));
+            chip8.loadRom(rom_data) catch {};
+            state = .paused;
+        }
+        // Speed control: up/down arrows
+        if (rl.isKeyPressed(.up)) {
+            instructions_per_frame = @min(instructions_per_frame + 2, 50);
+        }
+        if (rl.isKeyPressed(.down)) {
+            instructions_per_frame = @max(instructions_per_frame - 2, 1);
+        }
+
+        // Chip-8 input (only when running)
         chip8.cpu.keys = input.pollKeys();
 
         // Handle FX0A (wait for key)
@@ -50,20 +74,38 @@ pub fn main(init: std.process.Init) !void {
             }
         }
 
-        // Execute instructions (~500Hz at 60fps)
-        for (0..INSTRUCTIONS_PER_FRAME) |_| {
-            if (!chip8.cpu.waiting_for_key) {
-                chip8.update() catch {};
+        // Execute instructions
+        if (state == .running or state == .stepping) {
+            const count: usize = if (state == .stepping) 1 else @intCast(instructions_per_frame);
+            for (0..count) |_| {
+                if (!chip8.cpu.waiting_for_key) {
+                    chip8.update() catch {};
+                }
             }
+            if (state == .stepping) state = .paused;
         }
 
         // Tick timers at 60Hz
-        chip8.tickTimers();
+        if (state == .running) {
+            chip8.tickTimers();
+        }
 
         // Render
         rl.beginDrawing();
-        rl.clearBackground(rl.Color.black);
-        display.render(&chip8.cpu.display);
+        rl.clearBackground(rl.Color{ .r = 20, .g = 20, .b = 20, .a = 255 });
+
+        display.renderAll(
+            &chip8.cpu,
+            &chip8.memory,
+            state,
+            instructions_per_frame * 60,
+            &mem_scroll,
+        );
+
+        // Controls help bar at very bottom
+        const help_y = display.WINDOW_HEIGHT - 18;
+        rl.drawText("SPACE:Run/Pause  N:Step  BKSP:Reset  Up/Down:Speed  Keys:1234/QWER/ASDF/ZXCV", 10, help_y, 12, display.TEXT_DIM_PUB);
+
         rl.endDrawing();
     }
 }

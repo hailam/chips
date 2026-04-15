@@ -97,47 +97,54 @@ pub const Instruction = union(enum) {
     }
 
     pub fn format(self: Instruction, buf: []u8) []const u8 {
-        var stream = std.io.fixedBufferStream(buf);
-        const w = stream.writer();
-        switch (self) {
-            .cls => w.writeAll("CLS") catch {},
-            .ret => w.writeAll("RET") catch {},
-            .sys => |addr| std.fmt.format(w, "SYS  {X:0>3}", .{addr}) catch {},
-            .jmp => |addr| std.fmt.format(w, "JP   {X:0>3}", .{addr}) catch {},
-            .call => |addr| std.fmt.format(w, "CALL {X:0>3}", .{addr}) catch {},
-            .se_byte => |s| std.fmt.format(w, "SE   V{X}, {X:0>2}", .{ s.vx, s.byte }) catch {},
-            .sne_byte => |s| std.fmt.format(w, "SNE  V{X}, {X:0>2}", .{ s.vx, s.byte }) catch {},
-            .se_reg => |s| std.fmt.format(w, "SE   V{X}, V{X}", .{ s.vx, s.vy }) catch {},
-            .ld_byte => |s| std.fmt.format(w, "LD   V{X}, {X:0>2}", .{ s.vx, s.byte }) catch {},
-            .add_byte => |s| std.fmt.format(w, "ADD  V{X}, {X:0>2}", .{ s.vx, s.byte }) catch {},
-            .ld_reg => |s| std.fmt.format(w, "LD   V{X}, V{X}", .{ s.vx, s.vy }) catch {},
-            .or_reg => |s| std.fmt.format(w, "OR   V{X}, V{X}", .{ s.vx, s.vy }) catch {},
-            .and_reg => |s| std.fmt.format(w, "AND  V{X}, V{X}", .{ s.vx, s.vy }) catch {},
-            .xor_reg => |s| std.fmt.format(w, "XOR  V{X}, V{X}", .{ s.vx, s.vy }) catch {},
-            .add_reg => |s| std.fmt.format(w, "ADD  V{X}, V{X}", .{ s.vx, s.vy }) catch {},
-            .sub_reg => |s| std.fmt.format(w, "SUB  V{X}, V{X}", .{ s.vx, s.vy }) catch {},
-            .shr => |s| std.fmt.format(w, "SHR  V{X}", .{s.vx}) catch {},
-            .subn_reg => |s| std.fmt.format(w, "SUBN V{X}, V{X}", .{ s.vx, s.vy }) catch {},
-            .shl => |s| std.fmt.format(w, "SHL  V{X}", .{s.vx}) catch {},
-            .sne_reg => |s| std.fmt.format(w, "SNE  V{X}, V{X}", .{ s.vx, s.vy }) catch {},
-            .ld_i => |addr| std.fmt.format(w, "LD   I, {X:0>3}", .{addr}) catch {},
-            .jmp_v0 => |addr| std.fmt.format(w, "JP   V0, {X:0>3}", .{addr}) catch {},
-            .rnd => |s| std.fmt.format(w, "RND  V{X}, {X:0>2}", .{ s.vx, s.byte }) catch {},
-            .drw => |s| std.fmt.format(w, "DRW  V{X}, V{X}, {d}", .{ s.vx, s.vy, s.n }) catch {},
-            .skp => |vx| std.fmt.format(w, "SKP  V{X}", .{vx}) catch {},
-            .sknp => |vx| std.fmt.format(w, "SKNP V{X}", .{vx}) catch {},
-            .ld_vx_dt => |vx| std.fmt.format(w, "LD   V{X}, DT", .{vx}) catch {},
-            .ld_vx_k => |vx| std.fmt.format(w, "LD   V{X}, K", .{vx}) catch {},
-            .ld_dt_vx => |vx| std.fmt.format(w, "LD   DT, V{X}", .{vx}) catch {},
-            .ld_st_vx => |vx| std.fmt.format(w, "LD   ST, V{X}", .{vx}) catch {},
-            .add_i_vx => |vx| std.fmt.format(w, "ADD  I, V{X}", .{vx}) catch {},
-            .ld_f_vx => |vx| std.fmt.format(w, "LD   F, V{X}", .{vx}) catch {},
-            .ld_b_vx => |vx| std.fmt.format(w, "LD   B, V{X}", .{vx}) catch {},
-            .ld_i_vx => |vx| std.fmt.format(w, "LD   [I], V{X}", .{vx}) catch {},
-            .ld_vx_i => |vx| std.fmt.format(w, "LD   V{X}, [I]", .{vx}) catch {},
-            .unknown => |op| std.fmt.format(w, "???  {X:0>4}", .{op}) catch {},
-        }
-        return stream.getWritten();
+        return switch (self) {
+            .cls => copyTo(buf, "CLS"),
+            .ret => copyTo(buf, "RET"),
+            .sys => |addr| fmtTo(buf, "SYS  {X:0>3}", .{addr}),
+            .jmp => |addr| fmtTo(buf, "JP   {X:0>3}", .{addr}),
+            .call => |addr| fmtTo(buf, "CALL {X:0>3}", .{addr}),
+            .se_byte => |s| fmtTo(buf, "SE   V{X}, {X:0>2}", .{ s.vx, s.byte }),
+            .sne_byte => |s| fmtTo(buf, "SNE  V{X}, {X:0>2}", .{ s.vx, s.byte }),
+            .se_reg => |s| fmtTo(buf, "SE   V{X}, V{X}", .{ s.vx, s.vy }),
+            .ld_byte => |s| fmtTo(buf, "LD   V{X}, {X:0>2}", .{ s.vx, s.byte }),
+            .add_byte => |s| fmtTo(buf, "ADD  V{X}, {X:0>2}", .{ s.vx, s.byte }),
+            .ld_reg => |s| fmtTo(buf, "LD   V{X}, V{X}", .{ s.vx, s.vy }),
+            .or_reg => |s| fmtTo(buf, "OR   V{X}, V{X}", .{ s.vx, s.vy }),
+            .and_reg => |s| fmtTo(buf, "AND  V{X}, V{X}", .{ s.vx, s.vy }),
+            .xor_reg => |s| fmtTo(buf, "XOR  V{X}, V{X}", .{ s.vx, s.vy }),
+            .add_reg => |s| fmtTo(buf, "ADD  V{X}, V{X}", .{ s.vx, s.vy }),
+            .sub_reg => |s| fmtTo(buf, "SUB  V{X}, V{X}", .{ s.vx, s.vy }),
+            .shr => |s| fmtTo(buf, "SHR  V{X}", .{s.vx}),
+            .subn_reg => |s| fmtTo(buf, "SUBN V{X}, V{X}", .{ s.vx, s.vy }),
+            .shl => |s| fmtTo(buf, "SHL  V{X}", .{s.vx}),
+            .sne_reg => |s| fmtTo(buf, "SNE  V{X}, V{X}", .{ s.vx, s.vy }),
+            .ld_i => |addr| fmtTo(buf, "LD   I, {X:0>3}", .{addr}),
+            .jmp_v0 => |addr| fmtTo(buf, "JP   V0, {X:0>3}", .{addr}),
+            .rnd => |s| fmtTo(buf, "RND  V{X}, {X:0>2}", .{ s.vx, s.byte }),
+            .drw => |s| fmtTo(buf, "DRW  V{X}, V{X}, {d}", .{ s.vx, s.vy, s.n }),
+            .skp => |vx| fmtTo(buf, "SKP  V{X}", .{vx}),
+            .sknp => |vx| fmtTo(buf, "SKNP V{X}", .{vx}),
+            .ld_vx_dt => |vx| fmtTo(buf, "LD   V{X}, DT", .{vx}),
+            .ld_vx_k => |vx| fmtTo(buf, "LD   V{X}, K", .{vx}),
+            .ld_dt_vx => |vx| fmtTo(buf, "LD   DT, V{X}", .{vx}),
+            .ld_st_vx => |vx| fmtTo(buf, "LD   ST, V{X}", .{vx}),
+            .add_i_vx => |vx| fmtTo(buf, "ADD  I, V{X}", .{vx}),
+            .ld_f_vx => |vx| fmtTo(buf, "LD   F, V{X}", .{vx}),
+            .ld_b_vx => |vx| fmtTo(buf, "LD   B, V{X}", .{vx}),
+            .ld_i_vx => |vx| fmtTo(buf, "LD   [I], V{X}", .{vx}),
+            .ld_vx_i => |vx| fmtTo(buf, "LD   V{X}, [I]", .{vx}),
+            .unknown => |op| fmtTo(buf, "???  {X:0>4}", .{op}),
+        };
+    }
+
+    fn fmtTo(buf: []u8, comptime fmt: []const u8, args: anytype) []const u8 {
+        return std.fmt.bufPrint(buf, fmt, args) catch buf[0..0];
+    }
+
+    fn copyTo(buf: []u8, src: []const u8) []const u8 {
+        const len = @min(src.len, buf.len);
+        @memcpy(buf[0..len], src[0..len]);
+        return buf[0..len];
     }
 };
 
