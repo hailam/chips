@@ -20,8 +20,10 @@ pub fn main(init: std.process.Init) !void {
     chip8.cpu.seedRng(@as(u64, @truncate(@intFromPtr(&chip8))));
     try chip8.loadRom(rom_data);
 
-    rl.initWindow(display.WINDOW_WIDTH, display.WINDOW_HEIGHT, "Chip-8 Emulator");
+    rl.setConfigFlags(.{ .window_resizable = true });
+    rl.initWindow(display.DEFAULT_WINDOW_WIDTH, display.DEFAULT_WINDOW_HEIGHT, "Chip-8 Emulator");
     defer rl.closeWindow();
+    rl.setWindowMinSize(display.MIN_WINDOW_WIDTH, display.MIN_WINDOW_HEIGHT);
     rl.setTargetFPS(60);
 
     display.initFont();
@@ -33,6 +35,7 @@ pub fn main(init: std.process.Init) !void {
     var state: display.EmulatorState = .running;
     var instructions_per_frame: i32 = 10;
     var mem_scroll: i32 = 0x20;
+    var disasm_scroll: i32 = 0;
     var muted: bool = false;
 
     while (!rl.windowShouldClose()) {
@@ -79,7 +82,7 @@ pub fn main(init: std.process.Init) !void {
         // Render
         rl.beginDrawing();
         rl.clearBackground(display.BG_WINDOW_PUB);
-        display.renderAll(&chip8.cpu, &chip8.memory, state, instructions_per_frame * 60, &mem_scroll, muted);
+        display.renderAll(&chip8.cpu, &chip8.memory, state, instructions_per_frame * 60, &mem_scroll, &disasm_scroll, muted);
         rl.endDrawing();
     }
 }

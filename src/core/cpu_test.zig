@@ -1,5 +1,6 @@
 const std = @import("std");
 const cpu = @import("cpu.zig");
+const display_layout = @import("display_layout.zig");
 
 test "CPU initialization" {
     const c = cpu.CPU.init();
@@ -308,4 +309,85 @@ test "Font sprite location" {
     try c.executeInstruction(&memory);
 
     try std.testing.expectEqual(@as(u16, 0x0A * 5), c.index_register);
+}
+
+test "Display layout stays inside the window and keeps panel gaps" {
+    try expectStableLayout(display_layout.computeLayout(display_layout.DEFAULT_WINDOW_WIDTH, display_layout.DEFAULT_WINDOW_HEIGHT));
+    try expectStableLayout(display_layout.computeLayout(display_layout.MIN_WINDOW_WIDTH, display_layout.MIN_WINDOW_HEIGHT));
+    try expectStableLayout(display_layout.computeLayout(
+        display_layout.DEFAULT_WINDOW_WIDTH + 320,
+        display_layout.DEFAULT_WINDOW_HEIGHT + 240,
+    ));
+}
+
+test "Display layout scroll clamps are derived from visible rows" {
+    try std.testing.expectEqual(@as(i32, 0), display_layout.clampMemoryScroll(-4, 12));
+    try std.testing.expectEqual(@as(i32, 244), display_layout.clampMemoryScroll(999, 12));
+
+    const visible_rows: usize = 10;
+    const min_scroll = display_layout.clampDisasmScroll(-999, 0x200, visible_rows);
+    const max_scroll = display_layout.clampDisasmScroll(9999, 0x200, visible_rows);
+    try std.testing.expectEqual(@as(i32, -256), min_scroll);
+    try std.testing.expectEqual(@as(i32, 1782), max_scroll);
+
+    const start_row = @as(i32, 0x200 / 2) + max_scroll;
+    try std.testing.expect(start_row + @as(i32, @intCast(visible_rows)) <= cpu.CHIP8_MEMORY_SIZE / 2);
+}
+
+test "Display layout memory range stays valid at edge inputs" {
+    const normal = display_layout.memoryVisibleRange(0x20, 19);
+    try std.testing.expectEqual(@as(u16, 0x200), normal.start_addr);
+    try std.testing.expectEqual(@as(u16, 0x32F), normal.end_addr);
+
+    const zero_rows = display_layout.memoryVisibleRange(0, 0);
+    try std.testing.expectEqual(@as(u16, 0x000), zero_rows.start_addr);
+    try std.testing.expectEqual(@as(u16, 0x00F), zero_rows.end_addr);
+
+    const overscrolled = display_layout.memoryVisibleRange(999, 64);
+    try std.testing.expectEqual(@as(u16, 0xFF0), overscrolled.start_addr);
+    try std.testing.expectEqual(@as(u16, 0xFFF), overscrolled.end_addr);
+}
+
+test "Display layout text helpers clip and align narrow content" {
+    var buf: [32]u8 = undefined;
+    const fitted = display_layout.fitText("SOUND MUTED", 40, display_layout.FONT_SIZE_SMALL, &buf);
+    try std.testing.expect(std.mem.endsWith(u8, fitted, "..."));
+    try std.testing.expect(display_layout.measureMonoTextWidth(fitted, display_layout.FONT_SIZE_SMALL) <= 40);
+
+    const same = display_layout.fitText("CPU", 120, display_layout.FONT_SIZE_SMALL, &buf);
+    try std.testing.expectEqualStrings("CPU", same);
+
+    const right_x = display_layout.rightAlignX(10, 100, "TEST", display_layout.FONT_SIZE_SMALL);
+    try std.testing.expectEqual(
+        @as(i32, 10 + 100 - display_layout.measureMonoTextWidth("TEST", display_layout.FONT_SIZE_SMALL)),
+        right_x,
+    );
+}
+
+fn expectStableLayout(ui: display_layout.LayoutMetrics) !void {
+    try expectRectInside(ui.display, ui.screen_w, ui.screen_h);
+    try expectRectInside(ui.right_column, ui.screen_w, ui.screen_h);
+    try expectRectInside(ui.registers, ui.screen_w, ui.screen_h);
+    try expectRectInside(ui.disassembler, ui.screen_w, ui.screen_h);
+    try expectRectInside(ui.gutter, ui.screen_w, ui.screen_h);
+    try expectRectInside(ui.memory, ui.screen_w, ui.screen_h);
+    try expectRectInside(ui.footer, ui.screen_w, ui.screen_h);
+
+    try std.testing.expect(ui.display.x >= display_layout.MARGIN);
+    try std.testing.expect(ui.display.right() + display_layout.MARGIN <= ui.right_column.x);
+    try std.testing.expect(ui.registers.bottom() + display_layout.MARGIN <= ui.disassembler.y);
+    try std.testing.expect(ui.disassembler.bottom() + display_layout.MARGIN <= ui.gutter.y);
+    try std.testing.expect(ui.gutter.bottom() + display_layout.MARGIN <= ui.memory.y);
+    try std.testing.expect(ui.memory.bottom() + display_layout.MARGIN <= ui.footer.y);
+    try std.testing.expect(ui.memory_rows_visible >= 1);
+    try std.testing.expect(ui.disasm_rows_visible >= 1);
+}
+
+fn expectRectInside(rect: display_layout.PanelRect, screen_w: i32, screen_h: i32) !void {
+    try std.testing.expect(rect.x >= 0);
+    try std.testing.expect(rect.y >= 0);
+    try std.testing.expect(rect.w > 0);
+    try std.testing.expect(rect.h > 0);
+    try std.testing.expect(rect.right() <= screen_w);
+    try std.testing.expect(rect.bottom() <= screen_h);
 }
