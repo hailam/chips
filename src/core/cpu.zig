@@ -168,6 +168,34 @@ pub const CPU = struct {
     mem_write_age: [CHIP8_MEMORY_SIZE]u32,
     last_i_target: u16,
     frame_count: u32,
+    prev_registers: [CHIP8_REGISTER_COUNT]u8,
+    reg_change_age: [CHIP8_REGISTER_COUNT]u32,
+    last_flow: DataFlow,
+
+    pub const FlowKind = enum {
+        none,
+        fetch, // RAM[PC] → decode
+        sprite_read, // RAM[I..] → display
+        i_read, // RAM[I..] → registers
+        i_write, // registers → RAM[I..]
+        key_wait, // keypad → register
+        reg_load, // byte → VX (6XKK, 7XKK)
+        reg_op, // VX ↔ VY (8XY_)
+        call, // PC → stack
+        ret, // stack → PC
+        skip, // VX test → PC+2
+        jump, // addr → PC
+        timer, // VX ↔ DT/ST
+    };
+
+    pub const DataFlow = struct {
+        kind: FlowKind = .none,
+        src_addr: u16 = 0,
+        src_len: u8 = 0,
+        vx: u4 = 0,
+        vy: u4 = 0,
+        opcode: u16 = 0,
+    };
 
     pub fn init() CPU {
         return CPU{
@@ -187,7 +215,19 @@ pub const CPU = struct {
             .mem_write_age = [_]u32{0} ** CHIP8_MEMORY_SIZE,
             .last_i_target = 0,
             .frame_count = 0,
+            .prev_registers = [_]u8{0} ** CHIP8_REGISTER_COUNT,
+            .reg_change_age = [_]u32{0} ** CHIP8_REGISTER_COUNT,
+            .last_flow = .{},
         };
+    }
+
+    pub fn snapshotRegisters(self: *CPU) void {
+        for (0..CHIP8_REGISTER_COUNT) |i| {
+            if (self.registers[i] != self.prev_registers[i]) {
+                self.reg_change_age[i] = self.frame_count;
+            }
+        }
+        self.prev_registers = self.registers;
     }
 
     pub fn seedRng(self: *CPU, seed: u64) void {
@@ -201,10 +241,14 @@ pub const CPU = struct {
     }
 
     pub fn executeInstruction(self: *CPU, memory: *[CHIP8_MEMORY_SIZE]u8) !void {
+        const fetch_pc = self.program_counter;
         const opcode: u16 = @as(u16, memory[self.program_counter]) << 8 | @as(u16, memory[self.program_counter + 1]);
         self.program_counter += 2;
 
         const inst = Instruction.decode(opcode);
+
+        // Default flow: fetch
+        self.last_flow = .{ .kind = .fetch, .src_addr = fetch_pc, .src_len = 2, .opcode = opcode };
 
         switch (inst) {
             .cls => {
@@ -216,10 +260,12 @@ pub const CPU = struct {
                     self.stack_pointer -= 1;
                     self.program_counter = self.stack[self.stack_pointer];
                 }
+                self.last_flow = .{ .kind = .ret, .opcode = opcode };
             },
             .sys => {},
             .jmp => |addr| {
                 self.program_counter = addr;
+                self.last_flow = .{ .kind = .jump, .src_addr = addr, .opcode = opcode };
             },
             .call => |addr| {
                 if (self.stack_pointer < CHIP8_STACK_SIZE) {
@@ -229,74 +275,93 @@ pub const CPU = struct {
                 } else {
                     return error.StackOverflow;
                 }
+                self.last_flow = .{ .kind = .call, .src_addr = addr, .opcode = opcode };
             },
             .se_byte => |s| {
                 if (self.registers[s.vx] == s.byte) self.program_counter += 2;
+                self.last_flow = .{ .kind = .skip, .vx = s.vx, .opcode = opcode };
             },
             .sne_byte => |s| {
                 if (self.registers[s.vx] != s.byte) self.program_counter += 2;
+                self.last_flow = .{ .kind = .skip, .vx = s.vx, .opcode = opcode };
             },
             .se_reg => |s| {
                 if (self.registers[s.vx] == self.registers[s.vy]) self.program_counter += 2;
+                self.last_flow = .{ .kind = .skip, .vx = s.vx, .vy = s.vy, .opcode = opcode };
             },
             .ld_byte => |s| {
                 self.registers[s.vx] = s.byte;
+                self.last_flow = .{ .kind = .reg_load, .vx = s.vx, .opcode = opcode };
             },
             .add_byte => |s| {
                 self.registers[s.vx] = self.registers[s.vx] +% s.byte;
+                self.last_flow = .{ .kind = .reg_load, .vx = s.vx, .opcode = opcode };
             },
             .ld_reg => |s| {
                 self.registers[s.vx] = self.registers[s.vy];
+                self.last_flow = .{ .kind = .reg_op, .vx = s.vx, .vy = s.vy, .opcode = opcode };
             },
             .or_reg => |s| {
                 self.registers[s.vx] |= self.registers[s.vy];
                 self.registers[0xF] = 0;
+                self.last_flow = .{ .kind = .reg_op, .vx = s.vx, .vy = s.vy, .opcode = opcode };
             },
             .and_reg => |s| {
                 self.registers[s.vx] &= self.registers[s.vy];
                 self.registers[0xF] = 0;
+                self.last_flow = .{ .kind = .reg_op, .vx = s.vx, .vy = s.vy, .opcode = opcode };
             },
             .xor_reg => |s| {
                 self.registers[s.vx] ^= self.registers[s.vy];
                 self.registers[0xF] = 0;
+                self.last_flow = .{ .kind = .reg_op, .vx = s.vx, .vy = s.vy, .opcode = opcode };
             },
             .add_reg => |s| {
                 const sum: u16 = @as(u16, self.registers[s.vx]) + @as(u16, self.registers[s.vy]);
                 self.registers[s.vx] = @truncate(sum);
                 self.registers[0xF] = if (sum > 255) @as(u8, 1) else @as(u8, 0);
+                self.last_flow = .{ .kind = .reg_op, .vx = s.vx, .vy = s.vy, .opcode = opcode };
             },
             .sub_reg => |s| {
                 const vf: u8 = if (self.registers[s.vx] >= self.registers[s.vy]) 1 else 0;
                 self.registers[s.vx] = self.registers[s.vx] -% self.registers[s.vy];
                 self.registers[0xF] = vf;
+                self.last_flow = .{ .kind = .reg_op, .vx = s.vx, .vy = s.vy, .opcode = opcode };
             },
             .shr => |s| {
                 const vf: u8 = self.registers[s.vx] & 1;
                 self.registers[s.vx] >>= 1;
                 self.registers[0xF] = vf;
+                self.last_flow = .{ .kind = .reg_op, .vx = s.vx, .opcode = opcode };
             },
             .subn_reg => |s| {
                 const vf: u8 = if (self.registers[s.vy] >= self.registers[s.vx]) 1 else 0;
                 self.registers[s.vx] = self.registers[s.vy] -% self.registers[s.vx];
                 self.registers[0xF] = vf;
+                self.last_flow = .{ .kind = .reg_op, .vx = s.vx, .vy = s.vy, .opcode = opcode };
             },
             .shl => |s| {
                 const vf: u8 = (self.registers[s.vx] >> 7) & 1;
                 self.registers[s.vx] <<= 1;
                 self.registers[0xF] = vf;
+                self.last_flow = .{ .kind = .reg_op, .vx = s.vx, .opcode = opcode };
             },
             .sne_reg => |s| {
                 if (self.registers[s.vx] != self.registers[s.vy]) self.program_counter += 2;
+                self.last_flow = .{ .kind = .skip, .vx = s.vx, .vy = s.vy, .opcode = opcode };
             },
             .ld_i => |addr| {
                 self.index_register = addr;
+                self.last_flow = .{ .kind = .reg_load, .src_addr = addr, .opcode = opcode };
             },
             .jmp_v0 => |addr| {
                 self.program_counter = @as(u16, self.registers[0]) + addr;
+                self.last_flow = .{ .kind = .jump, .src_addr = self.program_counter, .opcode = opcode };
             },
             .rnd => |s| {
                 const random_byte: u8 = self.rng.random().int(u8);
                 self.registers[s.vx] = random_byte & s.byte;
+                self.last_flow = .{ .kind = .reg_load, .vx = s.vx, .opcode = opcode };
             },
             .drw => |s| {
                 const vx: u8 = self.registers[s.vx];
@@ -320,26 +385,33 @@ pub const CPU = struct {
                     }
                 }
                 self.draw_flag = true;
+                self.last_flow = .{ .kind = .sprite_read, .src_addr = self.index_register, .src_len = s.n, .vx = s.vx, .vy = s.vy, .opcode = opcode };
             },
             .skp => |vx| {
                 if (self.keys[self.registers[vx] & 0xF]) self.program_counter += 2;
+                self.last_flow = .{ .kind = .skip, .vx = vx, .opcode = opcode };
             },
             .sknp => |vx| {
                 if (!self.keys[self.registers[vx] & 0xF]) self.program_counter += 2;
+                self.last_flow = .{ .kind = .skip, .vx = vx, .opcode = opcode };
             },
             .ld_vx_dt => |vx| {
                 self.registers[vx] = self.delay_timer;
+                self.last_flow = .{ .kind = .timer, .vx = vx, .opcode = opcode };
             },
             .ld_vx_k => |vx| {
                 self.waiting_for_key = true;
                 self.key_register = vx;
                 self.program_counter -= 2;
+                self.last_flow = .{ .kind = .key_wait, .vx = vx, .opcode = opcode };
             },
             .ld_dt_vx => |vx| {
                 self.delay_timer = self.registers[vx];
+                self.last_flow = .{ .kind = .timer, .vx = vx, .opcode = opcode };
             },
             .ld_st_vx => |vx| {
                 self.sound_timer = self.registers[vx];
+                self.last_flow = .{ .kind = .timer, .vx = vx, .opcode = opcode };
             },
             .add_i_vx => |vx| {
                 self.index_register +%= self.registers[vx];
@@ -358,6 +430,7 @@ pub const CPU = struct {
                 self.stampWrite(addr);
                 self.stampWrite(addr + 1);
                 self.stampWrite(addr + 2);
+                self.last_flow = .{ .kind = .i_write, .src_addr = addr, .src_len = 3, .vx = vx, .opcode = opcode };
             },
             .ld_i_vx => |vx| {
                 self.last_i_target = self.index_register;
@@ -365,12 +438,14 @@ pub const CPU = struct {
                     memory[self.index_register + i] = self.registers[i];
                     self.stampWrite(self.index_register + i);
                 }
+                self.last_flow = .{ .kind = .i_write, .src_addr = self.index_register, .src_len = @as(u8, vx) + 1, .vx = vx, .opcode = opcode };
             },
             .ld_vx_i => |vx| {
                 self.last_i_target = self.index_register;
                 for (0..@as(usize, vx) + 1) |i| {
                     self.registers[i] = memory[self.index_register + i];
                 }
+                self.last_flow = .{ .kind = .i_read, .src_addr = self.index_register, .src_len = @as(u8, vx) + 1, .vx = vx, .opcode = opcode };
             },
             .unknown => {},
         }
