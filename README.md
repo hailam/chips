@@ -25,7 +25,8 @@ zig build test
 | SPACE | Run / Pause |
 | N | Step one instruction (when paused) |
 | BACKSPACE | Reset |
-| UP / DOWN | Adjust CPU speed |
+| [ / ] | Adjust CPU speed |
+| W / A / S / D or Arrow Keys | Directional gameplay aliases |
 
 ## Keypad
 
@@ -36,3 +37,5 @@ Q W E R    ->   4 5 6 D
 A S D F    ->   7 8 9 E
 Z X C V    ->   A 0 B F
 ```
+
+Arrow keys mirror the same CHIP-8 slots as `W/A/S/D`: `Up -> 5`, `Left -> 7`, `Down -> 8`, `Right -> 9`.

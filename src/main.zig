@@ -48,8 +48,8 @@ pub fn main(init: std.process.Init) !void {
             chip8.loadRom(rom_data) catch {};
             state = .paused;
         }
-        if (rl.isKeyPressed(.up)) instructions_per_frame = @min(instructions_per_frame + 2, 50);
-        if (rl.isKeyPressed(.down)) instructions_per_frame = @max(instructions_per_frame - 2, 1);
+        if (rl.isKeyPressed(.right_bracket)) instructions_per_frame = @min(instructions_per_frame + 2, 50);
+        if (rl.isKeyPressed(.left_bracket)) instructions_per_frame = @max(instructions_per_frame - 2, 1);
         if (rl.isKeyPressed(.m)) muted = !muted;
 
         // Input

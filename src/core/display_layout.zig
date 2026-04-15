@@ -197,7 +197,7 @@ fn monoAdvance(size: f32) i32 {
 }
 
 fn wantsTwoRowFooter(screen_w: i32) bool {
-    const controls = "SPACE Run/Pause  N Step  BKSP Reset  M Mute  Up/Down Speed";
+    const controls = "SPACE Run/Pause  N Step  BKSP Reset  M Mute  [ ] Speed";
     const status = "Speed 3000Hz  Sound MUTED";
     const comfortable_single_row = measureMonoTextWidth(controls, FONT_SIZE_SMALL) +
         measureMonoTextWidth(status, FONT_SIZE_SMALL) +
