@@ -64,11 +64,13 @@ pub fn main(init: std.process.Init) !void {
         chip8.cpu.keys = input.pollKeys();
 
         // Handle FX0A (wait for key)
+        // When a key is detected, store it, advance PC past the FX0A, and resume
         if (chip8.cpu.waiting_for_key) {
             for (chip8.cpu.keys, 0..) |pressed, i| {
                 if (pressed) {
                     chip8.cpu.registers[chip8.cpu.key_register] = @intCast(i);
                     chip8.cpu.waiting_for_key = false;
+                    chip8.cpu.program_counter += 2; // skip past the FX0A
                     break;
                 }
             }
