@@ -1,6 +1,7 @@
 const std = @import("std");
 const rl = @import("raylib");
 const Chip8 = @import("core/chip8.zig").Chip8;
+const control = @import("core/control_spec.zig");
 const display = @import("core/display.zig");
 const input = @import("core/input.zig");
 const sound = @import("core/sound.zig");
@@ -48,8 +49,8 @@ pub fn main(init: std.process.Init) !void {
             chip8.loadRom(rom_data) catch {};
             state = .paused;
         }
-        if (rl.isKeyPressed(.right_bracket)) instructions_per_frame = @min(instructions_per_frame + 2, 50);
-        if (rl.isKeyPressed(.left_bracket)) instructions_per_frame = @max(instructions_per_frame - 2, 1);
+        if (rl.isKeyPressed(.right_bracket)) instructions_per_frame = control.applySpeedAction(instructions_per_frame, .faster);
+        if (rl.isKeyPressed(.left_bracket)) instructions_per_frame = control.applySpeedAction(instructions_per_frame, .slower);
         if (rl.isKeyPressed(.m)) muted = !muted;
 
         // Input

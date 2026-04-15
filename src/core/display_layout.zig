@@ -1,4 +1,5 @@
 const std = @import("std");
+const control = @import("control_spec.zig");
 const cpu_mod = @import("cpu.zig");
 
 pub const DISPLAY_BASE_W = cpu_mod.DISPLAY_WIDTH;
@@ -197,9 +198,8 @@ fn monoAdvance(size: f32) i32 {
 }
 
 fn wantsTwoRowFooter(screen_w: i32) bool {
-    const controls = "SPACE Run/Pause  N Step  BKSP Reset  M Mute  [ ] Speed";
     const status = "Speed 3000Hz  Sound MUTED";
-    const comfortable_single_row = measureMonoTextWidth(controls, FONT_SIZE_SMALL) +
+    const comfortable_single_row = measureMonoTextWidth(control.controls_label, FONT_SIZE_SMALL) +
         measureMonoTextWidth(status, FONT_SIZE_SMALL) +
         MARGIN * 8 +
         120;

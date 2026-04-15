@@ -2,6 +2,7 @@ const std = @import("std");
 const rl = @import("raylib");
 const cpu_mod = @import("cpu.zig");
 const Instruction = cpu_mod.Instruction;
+const control = @import("control_spec.zig");
 const layout = @import("display_layout.zig");
 
 pub const DEFAULT_WINDOW_WIDTH = layout.DEFAULT_WINDOW_WIDTH;
@@ -581,8 +582,8 @@ fn renderFooter(panel: layout.PanelRect, two_rows: bool, ips: i32, sound_timer: 
     rl.drawRectangle(panel.x, panel.y, panel.w, panel.h, BG_HEADER);
     rl.drawLine(panel.x, panel.y, panel.x + panel.w, panel.y, SEPARATOR);
 
-    const controls = "SPACE Run/Pause  N Step  BKSP Reset  M Mute  [ ] Speed";
-    const hint = "W/A/S/D or arrows play  Wheel over Memory or Disassembler to scroll";
+    const controls = control.controls_label;
+    const hint = control.controls_hint;
 
     var speed_buf: [32]u8 = undefined;
     const speed = std.fmt.bufPrint(&speed_buf, "Speed {d}Hz", .{ips}) catch "";

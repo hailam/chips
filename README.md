@@ -28,6 +28,8 @@ zig build test
 | [ / ] | Adjust CPU speed |
 | W / A / S / D or Arrow Keys | Directional gameplay aliases |
 
+Runtime footer text uses: `SPACE Run/Pause  N Step  BKSP Reset  M Mute  [ ] Speed`
+
 ## Keypad
 
 ```

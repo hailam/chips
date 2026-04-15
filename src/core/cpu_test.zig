@@ -1,4 +1,5 @@
 const std = @import("std");
+const control = @import("control_spec.zig");
 const cpu = @import("cpu.zig");
 const display_layout = @import("display_layout.zig");
 
@@ -364,6 +365,64 @@ test "Display layout text helpers clip and align narrow content" {
     );
 }
 
+test "Control spec canonical CHIP-8 bindings stay stable" {
+    try std.testing.expectEqual(@as(usize, 16), control.canonical_chip8_bindings.len);
+    try expectBinding(control.canonical_chip8_bindings[0], 0x0, .x);
+    try expectBinding(control.canonical_chip8_bindings[1], 0x1, .one);
+    try expectBinding(control.canonical_chip8_bindings[5], 0x5, .w);
+    try expectBinding(control.canonical_chip8_bindings[7], 0x7, .a);
+    try expectBinding(control.canonical_chip8_bindings[8], 0x8, .s);
+    try expectBinding(control.canonical_chip8_bindings[9], 0x9, .d);
+    try expectBinding(control.canonical_chip8_bindings[15], 0xF, .v);
+}
+
+test "Control spec arrow aliases fold onto CHIP-8 movement keys" {
+    try std.testing.expectEqual(@as(usize, 4), control.arrow_alias_bindings.len);
+    try expectBinding(control.arrow_alias_bindings[0], 0x5, .up);
+    try expectBinding(control.arrow_alias_bindings[1], 0x7, .left);
+    try expectBinding(control.arrow_alias_bindings[2], 0x8, .down);
+    try expectBinding(control.arrow_alias_bindings[3], 0x9, .right);
+}
+
+test "Control spec fold pressed keys merges canonical and alias inputs" {
+    var pressed = [_]bool{false} ** (@intFromEnum(control.PhysicalKey.right_bracket) + 1);
+
+    pressed[control.physicalKeyIndex(.w)] = true;
+    var keys = control.foldPressedChip8Keys(&pressed);
+    try std.testing.expect(keys[0x5]);
+    try std.testing.expect(!keys[0x7]);
+
+    pressed = [_]bool{false} ** (@intFromEnum(control.PhysicalKey.right_bracket) + 1);
+    pressed[control.physicalKeyIndex(.up)] = true;
+    keys = control.foldPressedChip8Keys(&pressed);
+    try std.testing.expect(keys[0x5]);
+    try std.testing.expect(!keys[0x8]);
+
+    pressed = [_]bool{false} ** (@intFromEnum(control.PhysicalKey.right_bracket) + 1);
+    pressed[control.physicalKeyIndex(.w)] = true;
+    pressed[control.physicalKeyIndex(.up)] = true;
+    keys = control.foldPressedChip8Keys(&pressed);
+    try std.testing.expect(keys[0x5]);
+    try std.testing.expectEqual(@as(usize, 1), countPressedKeys(keys));
+}
+
+test "Control spec speed action keeps existing step and clamp behavior" {
+    try std.testing.expectEqual(@as(i32, 8), control.applySpeedAction(10, .slower));
+    try std.testing.expectEqual(@as(i32, 12), control.applySpeedAction(10, .faster));
+    try std.testing.expectEqual(@as(i32, 1), control.applySpeedAction(1, .slower));
+    try std.testing.expectEqual(@as(i32, 50), control.applySpeedAction(50, .faster));
+}
+
+test "Control spec footer copy is shared and layout uses it" {
+    try std.testing.expectEqualStrings("SPACE Run/Pause  N Step  BKSP Reset  M Mute  [ ] Speed", control.controls_label);
+    try std.testing.expectEqualStrings("W/A/S/D or arrows play  Wheel over Memory or Disassembler to scroll", control.controls_hint);
+
+    const narrow_layout = display_layout.computeLayout(display_layout.MIN_WINDOW_WIDTH, display_layout.MIN_WINDOW_HEIGHT);
+    const wide_layout = display_layout.computeLayout(display_layout.DEFAULT_WINDOW_WIDTH + 320, display_layout.DEFAULT_WINDOW_HEIGHT);
+    try std.testing.expect(narrow_layout.footer_two_rows);
+    try std.testing.expect(!wide_layout.footer_two_rows);
+}
+
 fn expectStableLayout(ui: display_layout.LayoutMetrics) !void {
     try expectRectInside(ui.display, ui.screen_w, ui.screen_h);
     try expectRectInside(ui.right_column, ui.screen_w, ui.screen_h);
@@ -390,4 +449,17 @@ fn expectRectInside(rect: display_layout.PanelRect, screen_w: i32, screen_h: i32
     try std.testing.expect(rect.h > 0);
     try std.testing.expect(rect.right() <= screen_w);
     try std.testing.expect(rect.bottom() <= screen_h);
+}
+
+fn expectBinding(binding: control.Chip8Binding, chip8_index: usize, physical_key: control.PhysicalKey) !void {
+    try std.testing.expectEqual(chip8_index, binding.chip8_index);
+    try std.testing.expectEqual(physical_key, binding.physical_key);
+}
+
+fn countPressedKeys(keys: [16]bool) usize {
+    var count: usize = 0;
+    for (keys) |pressed| {
+        if (pressed) count += 1;
+    }
+    return count;
 }
