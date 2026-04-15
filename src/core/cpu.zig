@@ -1,0 +1,371 @@
+const std = @import("std");
+
+pub const CHIP8_REGISTER_COUNT = 16;
+pub const CHIP8_STACK_SIZE = 16;
+pub const CHIP8_MEMORY_SIZE = 4096;
+pub const DISPLAY_WIDTH = 64;
+pub const DISPLAY_HEIGHT = 32;
+pub const DISPLAY_SIZE = DISPLAY_WIDTH * DISPLAY_HEIGHT;
+
+// Tagged union for decoded instructions
+pub const Instruction = union(enum) {
+    cls,
+    ret,
+    sys: u16, // 0NNN (ignored on modern interpreters)
+    jmp: u16, // 1NNN
+    call: u16, // 2NNN
+    se_byte: struct { vx: u4, byte: u8 }, // 3XKK
+    sne_byte: struct { vx: u4, byte: u8 }, // 4XKK
+    se_reg: struct { vx: u4, vy: u4 }, // 5XY0
+    ld_byte: struct { vx: u4, byte: u8 }, // 6XKK
+    add_byte: struct { vx: u4, byte: u8 }, // 7XKK
+    ld_reg: struct { vx: u4, vy: u4 }, // 8XY0
+    or_reg: struct { vx: u4, vy: u4 }, // 8XY1
+    and_reg: struct { vx: u4, vy: u4 }, // 8XY2
+    xor_reg: struct { vx: u4, vy: u4 }, // 8XY3
+    add_reg: struct { vx: u4, vy: u4 }, // 8XY4
+    sub_reg: struct { vx: u4, vy: u4 }, // 8XY5
+    shr: struct { vx: u4 }, // 8XY6
+    subn_reg: struct { vx: u4, vy: u4 }, // 8XY7
+    shl: struct { vx: u4 }, // 8XYE
+    sne_reg: struct { vx: u4, vy: u4 }, // 9XY0
+    ld_i: u16, // ANNN
+    jmp_v0: u16, // BNNN
+    rnd: struct { vx: u4, byte: u8 }, // CXKK
+    drw: struct { vx: u4, vy: u4, n: u4 }, // DXYN
+    skp: u4, // EX9E
+    sknp: u4, // EXA1
+    ld_vx_dt: u4, // FX07
+    ld_vx_k: u4, // FX0A
+    ld_dt_vx: u4, // FX15
+    ld_st_vx: u4, // FX18
+    add_i_vx: u4, // FX1E
+    ld_f_vx: u4, // FX29
+    ld_b_vx: u4, // FX33
+    ld_i_vx: u4, // FX55
+    ld_vx_i: u4, // FX65
+    unknown: u16,
+
+    pub fn decode(opcode: u16) Instruction {
+        const nnn: u16 = opcode & 0x0FFF;
+        const kk: u8 = @truncate(opcode);
+        const n: u4 = @truncate(opcode);
+        const x: u4 = @truncate(opcode >> 8);
+        const y: u4 = @truncate(opcode >> 4);
+        const op: u4 = @truncate(opcode >> 12);
+
+        return switch (op) {
+            0x0 => if (nnn == 0x0E0) .cls else if (nnn == 0x0EE) .ret else .{ .sys = nnn },
+            0x1 => .{ .jmp = nnn },
+            0x2 => .{ .call = nnn },
+            0x3 => .{ .se_byte = .{ .vx = x, .byte = kk } },
+            0x4 => .{ .sne_byte = .{ .vx = x, .byte = kk } },
+            0x5 => .{ .se_reg = .{ .vx = x, .vy = y } },
+            0x6 => .{ .ld_byte = .{ .vx = x, .byte = kk } },
+            0x7 => .{ .add_byte = .{ .vx = x, .byte = kk } },
+            0x8 => switch (n) {
+                0x0 => .{ .ld_reg = .{ .vx = x, .vy = y } },
+                0x1 => .{ .or_reg = .{ .vx = x, .vy = y } },
+                0x2 => .{ .and_reg = .{ .vx = x, .vy = y } },
+                0x3 => .{ .xor_reg = .{ .vx = x, .vy = y } },
+                0x4 => .{ .add_reg = .{ .vx = x, .vy = y } },
+                0x5 => .{ .sub_reg = .{ .vx = x, .vy = y } },
+                0x6 => .{ .shr = .{ .vx = x } },
+                0x7 => .{ .subn_reg = .{ .vx = x, .vy = y } },
+                0xE => .{ .shl = .{ .vx = x } },
+                else => .{ .unknown = opcode },
+            },
+            0x9 => .{ .sne_reg = .{ .vx = x, .vy = y } },
+            0xA => .{ .ld_i = nnn },
+            0xB => .{ .jmp_v0 = nnn },
+            0xC => .{ .rnd = .{ .vx = x, .byte = kk } },
+            0xD => .{ .drw = .{ .vx = x, .vy = y, .n = n } },
+            0xE => if (kk == 0x9E) .{ .skp = x } else if (kk == 0xA1) .{ .sknp = x } else .{ .unknown = opcode },
+            0xF => switch (kk) {
+                0x07 => .{ .ld_vx_dt = x },
+                0x0A => .{ .ld_vx_k = x },
+                0x15 => .{ .ld_dt_vx = x },
+                0x18 => .{ .ld_st_vx = x },
+                0x1E => .{ .add_i_vx = x },
+                0x29 => .{ .ld_f_vx = x },
+                0x33 => .{ .ld_b_vx = x },
+                0x55 => .{ .ld_i_vx = x },
+                0x65 => .{ .ld_vx_i = x },
+                else => .{ .unknown = opcode },
+            },
+        };
+    }
+
+    pub fn format(self: Instruction, buf: []u8) []const u8 {
+        var stream = std.io.fixedBufferStream(buf);
+        const w = stream.writer();
+        switch (self) {
+            .cls => w.writeAll("CLS") catch {},
+            .ret => w.writeAll("RET") catch {},
+            .sys => |addr| std.fmt.format(w, "SYS  {X:0>3}", .{addr}) catch {},
+            .jmp => |addr| std.fmt.format(w, "JP   {X:0>3}", .{addr}) catch {},
+            .call => |addr| std.fmt.format(w, "CALL {X:0>3}", .{addr}) catch {},
+            .se_byte => |s| std.fmt.format(w, "SE   V{X}, {X:0>2}", .{ s.vx, s.byte }) catch {},
+            .sne_byte => |s| std.fmt.format(w, "SNE  V{X}, {X:0>2}", .{ s.vx, s.byte }) catch {},
+            .se_reg => |s| std.fmt.format(w, "SE   V{X}, V{X}", .{ s.vx, s.vy }) catch {},
+            .ld_byte => |s| std.fmt.format(w, "LD   V{X}, {X:0>2}", .{ s.vx, s.byte }) catch {},
+            .add_byte => |s| std.fmt.format(w, "ADD  V{X}, {X:0>2}", .{ s.vx, s.byte }) catch {},
+            .ld_reg => |s| std.fmt.format(w, "LD   V{X}, V{X}", .{ s.vx, s.vy }) catch {},
+            .or_reg => |s| std.fmt.format(w, "OR   V{X}, V{X}", .{ s.vx, s.vy }) catch {},
+            .and_reg => |s| std.fmt.format(w, "AND  V{X}, V{X}", .{ s.vx, s.vy }) catch {},
+            .xor_reg => |s| std.fmt.format(w, "XOR  V{X}, V{X}", .{ s.vx, s.vy }) catch {},
+            .add_reg => |s| std.fmt.format(w, "ADD  V{X}, V{X}", .{ s.vx, s.vy }) catch {},
+            .sub_reg => |s| std.fmt.format(w, "SUB  V{X}, V{X}", .{ s.vx, s.vy }) catch {},
+            .shr => |s| std.fmt.format(w, "SHR  V{X}", .{s.vx}) catch {},
+            .subn_reg => |s| std.fmt.format(w, "SUBN V{X}, V{X}", .{ s.vx, s.vy }) catch {},
+            .shl => |s| std.fmt.format(w, "SHL  V{X}", .{s.vx}) catch {},
+            .sne_reg => |s| std.fmt.format(w, "SNE  V{X}, V{X}", .{ s.vx, s.vy }) catch {},
+            .ld_i => |addr| std.fmt.format(w, "LD   I, {X:0>3}", .{addr}) catch {},
+            .jmp_v0 => |addr| std.fmt.format(w, "JP   V0, {X:0>3}", .{addr}) catch {},
+            .rnd => |s| std.fmt.format(w, "RND  V{X}, {X:0>2}", .{ s.vx, s.byte }) catch {},
+            .drw => |s| std.fmt.format(w, "DRW  V{X}, V{X}, {d}", .{ s.vx, s.vy, s.n }) catch {},
+            .skp => |vx| std.fmt.format(w, "SKP  V{X}", .{vx}) catch {},
+            .sknp => |vx| std.fmt.format(w, "SKNP V{X}", .{vx}) catch {},
+            .ld_vx_dt => |vx| std.fmt.format(w, "LD   V{X}, DT", .{vx}) catch {},
+            .ld_vx_k => |vx| std.fmt.format(w, "LD   V{X}, K", .{vx}) catch {},
+            .ld_dt_vx => |vx| std.fmt.format(w, "LD   DT, V{X}", .{vx}) catch {},
+            .ld_st_vx => |vx| std.fmt.format(w, "LD   ST, V{X}", .{vx}) catch {},
+            .add_i_vx => |vx| std.fmt.format(w, "ADD  I, V{X}", .{vx}) catch {},
+            .ld_f_vx => |vx| std.fmt.format(w, "LD   F, V{X}", .{vx}) catch {},
+            .ld_b_vx => |vx| std.fmt.format(w, "LD   B, V{X}", .{vx}) catch {},
+            .ld_i_vx => |vx| std.fmt.format(w, "LD   [I], V{X}", .{vx}) catch {},
+            .ld_vx_i => |vx| std.fmt.format(w, "LD   V{X}, [I]", .{vx}) catch {},
+            .unknown => |op| std.fmt.format(w, "???  {X:0>4}", .{op}) catch {},
+        }
+        return stream.getWritten();
+    }
+};
+
+pub const CPU = struct {
+    // Standard registers & state
+    registers: [CHIP8_REGISTER_COUNT]u8,
+    index_register: u16,
+    program_counter: u16,
+    stack: [CHIP8_STACK_SIZE]u16,
+    stack_pointer: u16,
+    delay_timer: u8,
+    sound_timer: u8,
+    display: [DISPLAY_SIZE]u1,
+    keys: [16]bool,
+    draw_flag: bool,
+    waiting_for_key: bool,
+    key_register: u4,
+    rng: std.Random.Xoshiro256,
+
+    // Observability extensions
+    mem_write_age: [CHIP8_MEMORY_SIZE]u32,
+    last_i_target: u16,
+    frame_count: u32,
+
+    pub fn init() CPU {
+        return CPU{
+            .registers = [_]u8{0} ** CHIP8_REGISTER_COUNT,
+            .index_register = 0,
+            .program_counter = 0x200,
+            .stack = [_]u16{0} ** CHIP8_STACK_SIZE,
+            .stack_pointer = 0,
+            .delay_timer = 0,
+            .sound_timer = 0,
+            .display = [_]u1{0} ** DISPLAY_SIZE,
+            .keys = [_]bool{false} ** 16,
+            .draw_flag = false,
+            .waiting_for_key = false,
+            .key_register = 0,
+            .rng = std.Random.Xoshiro256.init(0),
+            .mem_write_age = [_]u32{0} ** CHIP8_MEMORY_SIZE,
+            .last_i_target = 0,
+            .frame_count = 0,
+        };
+    }
+
+    pub fn seedRng(self: *CPU, seed: u64) void {
+        self.rng = std.Random.Xoshiro256.init(seed);
+    }
+
+    fn stampWrite(self: *CPU, addr: usize) void {
+        if (addr < CHIP8_MEMORY_SIZE) {
+            self.mem_write_age[addr] = self.frame_count;
+        }
+    }
+
+    pub fn executeInstruction(self: *CPU, memory: *[CHIP8_MEMORY_SIZE]u8) !void {
+        const opcode: u16 = @as(u16, memory[self.program_counter]) << 8 | @as(u16, memory[self.program_counter + 1]);
+        self.program_counter += 2;
+
+        const inst = Instruction.decode(opcode);
+
+        switch (inst) {
+            .cls => {
+                @memset(&self.display, 0);
+                self.draw_flag = true;
+            },
+            .ret => {
+                if (self.stack_pointer > 0) {
+                    self.stack_pointer -= 1;
+                    self.program_counter = self.stack[self.stack_pointer];
+                }
+            },
+            .sys => {},
+            .jmp => |addr| {
+                self.program_counter = addr;
+            },
+            .call => |addr| {
+                if (self.stack_pointer < CHIP8_STACK_SIZE) {
+                    self.stack[self.stack_pointer] = self.program_counter;
+                    self.stack_pointer += 1;
+                    self.program_counter = addr;
+                } else {
+                    return error.StackOverflow;
+                }
+            },
+            .se_byte => |s| {
+                if (self.registers[s.vx] == s.byte) self.program_counter += 2;
+            },
+            .sne_byte => |s| {
+                if (self.registers[s.vx] != s.byte) self.program_counter += 2;
+            },
+            .se_reg => |s| {
+                if (self.registers[s.vx] == self.registers[s.vy]) self.program_counter += 2;
+            },
+            .ld_byte => |s| {
+                self.registers[s.vx] = s.byte;
+            },
+            .add_byte => |s| {
+                self.registers[s.vx] = self.registers[s.vx] +% s.byte;
+            },
+            .ld_reg => |s| {
+                self.registers[s.vx] = self.registers[s.vy];
+            },
+            .or_reg => |s| {
+                self.registers[s.vx] |= self.registers[s.vy];
+                self.registers[0xF] = 0;
+            },
+            .and_reg => |s| {
+                self.registers[s.vx] &= self.registers[s.vy];
+                self.registers[0xF] = 0;
+            },
+            .xor_reg => |s| {
+                self.registers[s.vx] ^= self.registers[s.vy];
+                self.registers[0xF] = 0;
+            },
+            .add_reg => |s| {
+                const sum: u16 = @as(u16, self.registers[s.vx]) + @as(u16, self.registers[s.vy]);
+                self.registers[s.vx] = @truncate(sum);
+                self.registers[0xF] = if (sum > 255) @as(u8, 1) else @as(u8, 0);
+            },
+            .sub_reg => |s| {
+                const vf: u8 = if (self.registers[s.vx] >= self.registers[s.vy]) 1 else 0;
+                self.registers[s.vx] = self.registers[s.vx] -% self.registers[s.vy];
+                self.registers[0xF] = vf;
+            },
+            .shr => |s| {
+                const vf: u8 = self.registers[s.vx] & 1;
+                self.registers[s.vx] >>= 1;
+                self.registers[0xF] = vf;
+            },
+            .subn_reg => |s| {
+                const vf: u8 = if (self.registers[s.vy] >= self.registers[s.vx]) 1 else 0;
+                self.registers[s.vx] = self.registers[s.vy] -% self.registers[s.vx];
+                self.registers[0xF] = vf;
+            },
+            .shl => |s| {
+                const vf: u8 = (self.registers[s.vx] >> 7) & 1;
+                self.registers[s.vx] <<= 1;
+                self.registers[0xF] = vf;
+            },
+            .sne_reg => |s| {
+                if (self.registers[s.vx] != self.registers[s.vy]) self.program_counter += 2;
+            },
+            .ld_i => |addr| {
+                self.index_register = addr;
+            },
+            .jmp_v0 => |addr| {
+                self.program_counter = @as(u16, self.registers[0]) + addr;
+            },
+            .rnd => |s| {
+                const random_byte: u8 = self.rng.random().int(u8);
+                self.registers[s.vx] = random_byte & s.byte;
+            },
+            .drw => |s| {
+                const vx: u8 = self.registers[s.vx];
+                const vy: u8 = self.registers[s.vy];
+                self.registers[0xF] = 0;
+                self.last_i_target = self.index_register;
+
+                for (0..@as(usize, s.n)) |row| {
+                    const sprite_byte = memory[self.index_register + row];
+                    for (0..8) |col| {
+                        const pixel: u1 = @truncate(sprite_byte >> @as(u3, @intCast(7 - col)));
+                        if (pixel == 1) {
+                            const px: usize = (@as(usize, vx) + col) % DISPLAY_WIDTH;
+                            const py: usize = (@as(usize, vy) + row) % DISPLAY_HEIGHT;
+                            const idx = py * DISPLAY_WIDTH + px;
+                            if (self.display[idx] == 1) {
+                                self.registers[0xF] = 1;
+                            }
+                            self.display[idx] ^= 1;
+                        }
+                    }
+                }
+                self.draw_flag = true;
+            },
+            .skp => |vx| {
+                if (self.keys[self.registers[vx] & 0xF]) self.program_counter += 2;
+            },
+            .sknp => |vx| {
+                if (!self.keys[self.registers[vx] & 0xF]) self.program_counter += 2;
+            },
+            .ld_vx_dt => |vx| {
+                self.registers[vx] = self.delay_timer;
+            },
+            .ld_vx_k => |vx| {
+                self.waiting_for_key = true;
+                self.key_register = vx;
+                self.program_counter -= 2;
+            },
+            .ld_dt_vx => |vx| {
+                self.delay_timer = self.registers[vx];
+            },
+            .ld_st_vx => |vx| {
+                self.sound_timer = self.registers[vx];
+            },
+            .add_i_vx => |vx| {
+                self.index_register +%= self.registers[vx];
+            },
+            .ld_f_vx => |vx| {
+                self.index_register = @as(u16, self.registers[vx] & 0xF) * 5;
+                self.last_i_target = self.index_register;
+            },
+            .ld_b_vx => |vx| {
+                const val = self.registers[vx];
+                const addr = self.index_register;
+                memory[addr] = val / 100;
+                memory[addr + 1] = (val / 10) % 10;
+                memory[addr + 2] = val % 10;
+                self.last_i_target = addr;
+                self.stampWrite(addr);
+                self.stampWrite(addr + 1);
+                self.stampWrite(addr + 2);
+            },
+            .ld_i_vx => |vx| {
+                self.last_i_target = self.index_register;
+                for (0..@as(usize, vx) + 1) |i| {
+                    memory[self.index_register + i] = self.registers[i];
+                    self.stampWrite(self.index_register + i);
+                }
+            },
+            .ld_vx_i => |vx| {
+                self.last_i_target = self.index_register;
+                for (0..@as(usize, vx) + 1) |i| {
+                    self.registers[i] = memory[self.index_register + i];
+                }
+            },
+            .unknown => {},
+        }
+    }
+};
