@@ -24,6 +24,25 @@ const font_data = [_]u8{
     0xF0, 0x80, 0xF0, 0x80, 0x80, // F
 };
 
+const large_font_data = [_]u8{
+    0x7C, 0xC6, 0xCE, 0xD6, 0xE6, 0xC6, 0xC6, 0xC6, 0x7C, 0x00, // 0
+    0x18, 0x38, 0x78, 0x18, 0x18, 0x18, 0x18, 0x18, 0x7E, 0x00, // 1
+    0x7C, 0xC6, 0x06, 0x0C, 0x18, 0x30, 0x60, 0xC6, 0xFE, 0x00, // 2
+    0x7C, 0xC6, 0x06, 0x06, 0x3C, 0x06, 0x06, 0xC6, 0x7C, 0x00, // 3
+    0x0C, 0x1C, 0x3C, 0x6C, 0xCC, 0xFE, 0x0C, 0x0C, 0x1E, 0x00, // 4
+    0xFE, 0xC0, 0xC0, 0xFC, 0x06, 0x06, 0x06, 0xC6, 0x7C, 0x00, // 5
+    0x3C, 0x60, 0xC0, 0xFC, 0xC6, 0xC6, 0xC6, 0xC6, 0x7C, 0x00, // 6
+    0xFE, 0xC6, 0x06, 0x0C, 0x18, 0x18, 0x30, 0x30, 0x30, 0x00, // 7
+    0x7C, 0xC6, 0xC6, 0xC6, 0x7C, 0xC6, 0xC6, 0xC6, 0x7C, 0x00, // 8
+    0x7C, 0xC6, 0xC6, 0xC6, 0x7E, 0x06, 0x06, 0x0C, 0x78, 0x00, // 9
+    0x38, 0x6C, 0xC6, 0xC6, 0xFE, 0xC6, 0xC6, 0xC6, 0xC6, 0x00, // A
+    0xFC, 0x66, 0x66, 0x66, 0x7C, 0x66, 0x66, 0x66, 0xFC, 0x00, // B
+    0x3C, 0x66, 0xC2, 0xC0, 0xC0, 0xC0, 0xC2, 0x66, 0x3C, 0x00, // C
+    0xF8, 0x6C, 0x66, 0x66, 0x66, 0x66, 0x66, 0x6C, 0xF8, 0x00, // D
+    0xFE, 0x62, 0x68, 0x78, 0x68, 0x78, 0x68, 0x62, 0xFE, 0x00, // E
+    0xFE, 0x62, 0x68, 0x78, 0x68, 0x78, 0x68, 0x60, 0xF0, 0x00, // F
+};
+
 pub const Chip8 = struct {
     cpu: CPU,
     memory: [CHIP8_MEMORY_SIZE]u8,
@@ -50,6 +69,7 @@ pub const Chip8 = struct {
         };
         // Load font data at 0x000
         @memcpy(c.memory[0..font_data.len], &font_data);
+        @memcpy(c.memory[0x50 .. 0x50 + large_font_data.len], &large_font_data);
         return c;
     }
 
@@ -81,6 +101,7 @@ pub const Chip8 = struct {
         self.config = old_config;
         self.rom_size = old_rom_size;
         @memcpy(self.memory[0..font_data.len], &font_data);
+        @memcpy(self.memory[0x50 .. 0x50 + large_font_data.len], &large_font_data);
         // Preserve loaded ROM
         @memcpy(&self.memory, &old_mem);
     }
@@ -110,6 +131,14 @@ pub const Chip8 = struct {
         try writer.writeByte(if (state.config.quirks.logic_ops_clear_vf) 1 else 0);
         try writer.writeByte(if (state.config.quirks.draw_wrap) 1 else 0);
         try writer.writeByte(if (state.config.quirks.jump_uses_vx) 1 else 0);
+        try writer.writeByte(if (state.config.quirks.supports_hires) 1 else 0);
+        try writer.writeByte(if (state.config.quirks.supports_xo) 1 else 0);
+        try writer.writeByte(if (state.config.quirks.octo_behavior) 1 else 0);
+        try writer.writeByte(if (state.config.quirks.resolution_switch_clears) 1 else 0);
+        try writer.writeByte(if (state.config.quirks.dxy0_lores_16x16) 1 else 0);
+        try writer.writeByte(if (state.config.quirks.fx30_large_font_hex) 1 else 0);
+        try writer.writeByte(if (state.config.quirks.draw_vf_rowcount_in_hires) 1 else 0);
+        try writer.writeByte(state.config.quirks.max_rpl);
         try writer.writeInt(u16, state.rom_size, .little);
     }
 
@@ -117,18 +146,23 @@ pub const Chip8 = struct {
         var state: SaveState = undefined;
         state.cpu = try CPU.readSaveState(reader);
         try reader.readSliceAll(&state.memory);
+        const profile_byte = try reader.takeByte();
         state.config = .{
-            .quirk_profile = switch (try reader.takeByte()) {
-                0 => .modern,
-                1 => .vip_legacy,
-                else => return error.InvalidSaveStateProfile,
-            },
+            .quirk_profile = emulation.profileFromByte(profile_byte) orelse return error.InvalidSaveStateProfile,
             .quirks = .{
                 .shift_uses_vy = (try reader.takeByte()) != 0,
                 .load_store_increment_i = (try reader.takeByte()) != 0,
                 .logic_ops_clear_vf = (try reader.takeByte()) != 0,
                 .draw_wrap = (try reader.takeByte()) != 0,
                 .jump_uses_vx = (try reader.takeByte()) != 0,
+                .supports_hires = (try reader.takeByte()) != 0,
+                .supports_xo = (try reader.takeByte()) != 0,
+                .octo_behavior = (try reader.takeByte()) != 0,
+                .resolution_switch_clears = (try reader.takeByte()) != 0,
+                .dxy0_lores_16x16 = (try reader.takeByte()) != 0,
+                .fx30_large_font_hex = (try reader.takeByte()) != 0,
+                .draw_vf_rowcount_in_hires = (try reader.takeByte()) != 0,
+                .max_rpl = try reader.takeByte(),
             },
         };
         state.rom_size = try reader.takeInt(u16, .little);

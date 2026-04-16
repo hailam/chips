@@ -6,8 +6,9 @@ const emulation = @import("emulation_config.zig");
 pub const MAX_RECENT_ROMS: usize = 10;
 const STATE_JSON_NAME = "state.json";
 const SAVES_DIR_NAME = "saves";
+const EXPORTS_DIR_NAME = "exports";
 const SAVE_MAGIC = "CH8S";
-const SAVE_VERSION: u32 = 1;
+const SAVE_VERSION: u32 = 2;
 
 pub const DisplayPalette = enum {
     classic_green,
@@ -242,6 +243,10 @@ pub fn saveStatePathAlloc(allocator: std.mem.Allocator, root_path: []const u8, s
     return std.fmt.allocPrint(allocator, "{s}/{s}/{s}/slot-{d:0>2}.bin", .{ root_path, SAVES_DIR_NAME, sha256_hex, slot });
 }
 
+pub fn sourceExportPathAlloc(allocator: std.mem.Allocator, root_path: []const u8, sha256_hex: []const u8, rom_basename: []const u8) ![]u8 {
+    return std.fmt.allocPrint(allocator, "{s}/{s}/{s}/{s}.asm", .{ root_path, EXPORTS_DIR_NAME, sha256_hex, rom_basename });
+}
+
 pub fn saveEnvelopeToFile(
     io: std.Io,
     allocator: std.mem.Allocator,
@@ -331,11 +336,7 @@ pub fn deserializeSaveStateEnvelope(bytes: []const u8) !SaveStateEnvelope {
 
     var rom_sha256: [32]u8 = undefined;
     try reader.readSliceAll(&rom_sha256);
-    const quirk_profile = switch (try reader.takeByte()) {
-        0 => emulation.QuirkProfile.modern,
-        1 => .vip_legacy,
-        else => return error.InvalidSaveStateProfile,
-    };
+    const quirk_profile = emulation.profileFromByte(try reader.takeByte()) orelse return error.InvalidSaveStateProfile;
     const cpu_hz_target = try reader.takeInt(i32, .little);
     const paused_state = (try reader.takeByte()) != 0;
     const chip8_state = try chip8_mod.Chip8.readSaveState(&reader);

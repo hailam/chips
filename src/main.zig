@@ -1,7 +1,10 @@
 const std = @import("std");
 const rl = @import("raylib");
+const assembly = @import("core/assembly.zig");
 const Chip8 = @import("core/chip8.zig").Chip8;
+const cli = @import("core/cli.zig");
 const control = @import("core/control_spec.zig");
+const cpu_mod = @import("core/cpu.zig");
 const debugger_mod = @import("core/debugger.zig");
 const display = @import("core/display.zig");
 const emulation = @import("core/emulation_config.zig");
@@ -18,6 +21,7 @@ const LoadedRom = struct {
     data: []u8,
     sha256: [32]u8,
     sha256_hex: []u8,
+    analysis: assembly.RomAnalysis,
 
     fn deinit(self: *LoadedRom, allocator: std.mem.Allocator) void {
         allocator.free(self.path);
@@ -29,9 +33,21 @@ const LoadedRom = struct {
 };
 
 pub fn main(init: std.process.Init) !void {
-    var args_iter = init.minimal.args.iterate();
-    _ = args_iter.skip();
-    const initial_rom_path = args_iter.next();
+    const args = try init.minimal.args.toSlice(init.arena.allocator());
+    const command = cli.parseArgs(args[1..]) catch |err| {
+        try printCliUsage(init, err);
+        std.process.exit(1);
+    };
+
+    switch (command) {
+        .run => |cmd| try runGui(init, cmd.rom_path, cmd.profile),
+        .disasm => |cmd| try runDisasmCommand(init, cmd.rom_path, cmd.output_path, cmd.profile),
+        .assemble => |cmd| try runAssembleCommand(init, cmd.source_path, cmd.output_path),
+        .check => |cmd| try runCheckCommand(init, cmd.source_path),
+    }
+}
+
+fn runGui(init: std.process.Init, initial_rom_path: ?[]const u8, requested_profile: ?emulation.QuirkProfile) !void {
 
     const app_data_root = try persistence.defaultAppDataRootAlloc(init.gpa, init.minimal.environ);
     defer init.gpa.free(app_data_root);
@@ -75,6 +91,7 @@ pub fn main(init: std.process.Init) !void {
             app_data_root,
             &app_state,
             rom_path,
+            requested_profile,
             &chip8,
             &timing_state,
             &ui_state,
@@ -133,14 +150,14 @@ pub fn main(init: std.process.Init) !void {
             if (rl.isKeyPressed(.space)) {
                 if (state == .running) {
                     state = .paused;
-                } else if (loaded_rom != null) {
+                } else if (loaded_rom != null and chip8.cpu.trap_reason == null) {
                     debugger_state.beginResume(chip8.cpu.program_counter);
                     state = .running;
                 }
             }
 
             if (rl.isKeyPressed(.n) and loaded_rom != null) {
-                if (state == .paused) {
+                if (state == .paused and chip8.cpu.trap_reason == null) {
                     if (shift_down and isCallOpcode(peekOpcode(&chip8, chip8.cpu.program_counter) orelse 0)) {
                         debugger_state.temp_run_until = chip8.cpu.program_counter + 2;
                         debugger_state.beginResume(chip8.cpu.program_counter);
@@ -160,6 +177,7 @@ pub fn main(init: std.process.Init) !void {
                 debugger_state.selected_trace_index = null;
                 debugger_state.trace_follow_live = true;
                 debugger_state.temp_run_until = null;
+                ui_state.clearStatus();
                 state = .paused;
             }
 
@@ -179,6 +197,9 @@ pub fn main(init: std.process.Init) !void {
                 state = .paused;
                 ui_state.recent_selection = 0;
             }
+            if (rl.isKeyPressed(.f2) and loaded_rom != null) {
+                try exportCurrentSource(&init, app_data_root, loaded_rom.?, &chip8, &ui_state);
+            }
             if (rl.isKeyPressed(.b) and state == .paused) {
                 debugger_state.toggleBreakpoint(chip8.cpu.program_counter);
             }
@@ -197,6 +218,10 @@ pub fn main(init: std.process.Init) !void {
             }
             if (rl.isKeyPressed(.p) and loaded_rom != null) {
                 chip8.config.setProfile(cycleProfile(chip8.config.quirk_profile));
+                try reloadLoadedRom(&chip8, loaded_rom.?, chip8.config);
+                debugger_state = debugger_mod.DebuggerState.init();
+                ui_state.clearStatus();
+                state = .paused;
                 try persistCurrentRomPreference(&init, app_data_root, &app_state, loaded_rom, &chip8, &timing_state, &ui_state);
             }
             if (rl.isKeyPressed(.f5) and loaded_rom != null) {
@@ -302,9 +327,22 @@ pub fn main(init: std.process.Init) !void {
                     break;
                 }
 
+                if (chip8.cpu.trap_reason != null) {
+                    state = .paused;
+                    break;
+                }
                 if (chip8.cpu.waiting_for_key) break;
 
-                chip8.update() catch break;
+                chip8.update() catch |err| switch (err) {
+                    error.CpuTrapped => {
+                        state = .paused;
+                        if (chip8.cpu.trap_reason) |trap| {
+                            var trap_buf: [96]u8 = undefined;
+                            ui_state.setStatus(trap.format(&trap_buf));
+                        }
+                        break;
+                    },
+                };
                 debugger_state.recordTrace(chip8.cpu.last_trace);
                 chip8.cpu.snapshotRegisters();
 
@@ -317,6 +355,8 @@ pub fn main(init: std.process.Init) !void {
             timing_state.cpu_accumulator_s = 0;
             timing_state.timer_accumulator_s = 0;
         }
+
+        sound.update(chip8.cpu.sound_timer, &chip8.cpu.audio_pattern, chip8.cpu.audio_pitch);
 
         rl.beginDrawing();
         rl.clearBackground(display.BG_WINDOW_PUB);
@@ -331,6 +371,7 @@ pub fn main(init: std.process.Init) !void {
             &mem_scroll,
             &disasm_scroll,
             sound.isMuted(),
+            if (loaded_rom) |rom| &rom.analysis else null,
             if (loaded_rom) |rom| rom.display_name else null,
         );
         rl.endDrawing();
@@ -360,7 +401,7 @@ fn handleOverlayInput(
             if (rl.isKeyPressed(.up)) ui_state.recent_selection -|= 1;
             if (rl.isKeyPressed(.enter)) {
                 const recent = app_state.recent_roms.items[ui_state.recent_selection];
-                const new_rom = try loadRomIntoRuntime(init, app_data_root, app_state, recent.path, chip8, timing_state, ui_state);
+                const new_rom = try loadRomIntoRuntime(init, app_data_root, app_state, recent.path, null, chip8, timing_state, ui_state);
                 if (loaded_rom.*) |*current| current.deinit(init.gpa);
                 loaded_rom.* = new_rom;
                 debugger_state.* = debugger_mod.DebuggerState.init();
@@ -434,11 +475,12 @@ fn loadRomIntoRuntime(
     app_data_root: []const u8,
     app_state: *persistence.AppState,
     rom_path: []const u8,
+    requested_profile: ?emulation.QuirkProfile,
     chip8: *Chip8,
     timing_state: *timing.TimingState,
     ui_state: *ui_mod.UiState,
 ) !LoadedRom {
-    const rom_data = try std.Io.Dir.cwd().readFileAlloc(init.io, rom_path, init.gpa, .limited(4096 - 0x200));
+    const rom_data = try std.Io.Dir.cwd().readFileAlloc(init.io, rom_path, init.gpa, .limited(cpu_mod.CHIP8_MEMORY_SIZE - @as(usize, 0x200)));
     errdefer init.gpa.free(rom_data);
 
     const sha256 = persistence.computeRomSha256(rom_data);
@@ -451,9 +493,15 @@ fn loadRomIntoRuntime(
     errdefer init.gpa.free(display_name);
 
     const pref = app_state.findRomPreference(sha256_hex);
-    const profile = if (pref) |value| value.quirk_profile else emulation.QuirkProfile.modern;
-    const hz = if (pref) |value| timing.clampCpuHz(value.cpu_hz_target) else timing.CPU_HZ_DEFAULT;
+    const inferred_profile = assembly.inferProfile(rom_data);
+    const profile = requested_profile orelse if (pref) |value|
+        preferredProfile(value.quirk_profile, inferred_profile)
+    else
+        inferred_profile;
+    const saved_hz = if (pref) |value| value.cpu_hz_target else null;
+    const hz = timing.preferredStartupCpuHz(saved_hz, profile);
     const save_slot = if (pref) |value| clampSlot(value.last_save_slot) else @as(u8, 1);
+    const analysis = assembly.analyzeRomForProfile(profile, rom_data);
 
     chip8.* = Chip8.initWithConfig(emulation.EmulationConfig.init(profile));
     seedChip8(chip8);
@@ -463,6 +511,17 @@ fn loadRomIntoRuntime(
     timing_state.cpu_hz_target = @floatFromInt(hz);
     ui_state.active_save_slot = save_slot;
     ui_state.overlay = .none;
+    const profile_upgraded = requested_profile == null and pref != null and pref.?.quirk_profile != profile;
+    const speed_upgraded = requested_profile == null and saved_hz != null and saved_hz.? != hz;
+    if (profile_upgraded and speed_upgraded) {
+        ui_state.setStatusFmt("Auto: {s} {d}Hz", .{ emulation.profileLabel(profile), hz });
+    } else if (profile_upgraded) {
+        ui_state.setStatusFmt("Auto profile: {s}", .{emulation.profileLabel(profile)});
+    } else if (speed_upgraded) {
+        ui_state.setStatusFmt("Auto speed: {d}Hz", .{hz});
+    } else {
+        ui_state.clearStatus();
+    }
 
     try app_state.upsertRecentRom(rom_path, display_name, sha256_hex, std.Io.Clock.now(.real, init.io).toMilliseconds());
     try app_state.upsertRomPreference(sha256_hex, rom_path, chip8.config.quirk_profile, hz, ui_state.active_save_slot);
@@ -474,6 +533,23 @@ fn loadRomIntoRuntime(
         .data = rom_data,
         .sha256 = sha256,
         .sha256_hex = sha256_hex,
+        .analysis = analysis,
+    };
+}
+
+fn preferredProfile(saved: emulation.QuirkProfile, inferred: emulation.QuirkProfile) emulation.QuirkProfile {
+    return if (profileRank(inferred) > profileRank(saved) or inferred == .octo_xo and saved != .octo_xo)
+        inferred
+    else
+        saved;
+}
+
+fn profileRank(profile: emulation.QuirkProfile) u8 {
+    return switch (profile) {
+        .modern, .vip_legacy => 0,
+        .schip_11 => 1,
+        .xo_chip => 2,
+        .octo_xo => 3,
     };
 }
 
@@ -554,7 +630,7 @@ fn loadDroppedRom(
     while (idx < dropped.count) : (idx += 1) {
         const path = std.mem.span(dropped.paths[idx]);
         if (hasSupportedRomExtension(path)) {
-            return try loadRomIntoRuntime(init, app_data_root, app_state, path, chip8, timing_state, ui_state);
+            return try loadRomIntoRuntime(init, app_data_root, app_state, path, null, chip8, timing_state, ui_state);
         }
     }
     return null;
@@ -566,6 +642,154 @@ fn hasSupportedRomExtension(path: []const u8) bool {
 
 fn seedChip8(chip8: *Chip8) void {
     chip8.cpu.seedRng(@as(u64, @truncate(@intFromPtr(chip8))));
+}
+
+fn exportCurrentSource(
+    init: *const std.process.Init,
+    app_data_root: []const u8,
+    loaded_rom: LoadedRom,
+    chip8: *const Chip8,
+    ui_state: *ui_mod.UiState,
+) !void {
+    const export_path = try persistence.sourceExportPathAlloc(init.gpa, app_data_root, loaded_rom.sha256_hex, loaded_rom.display_name);
+    defer init.gpa.free(export_path);
+
+    const export_dir = std.fs.path.dirname(export_path) orelse ".";
+    try std.Io.Dir.cwd().createDirPath(init.io, export_dir);
+
+    var exported = try assembly.exportAnnotatedSource(init.gpa, .{
+        .rom_name = loaded_rom.display_name,
+        .sha256_hex = loaded_rom.sha256_hex,
+        .profile = chip8.config.quirk_profile,
+    }, loaded_rom.data);
+    defer exported.deinit(init.gpa);
+
+    try std.Io.Dir.cwd().writeFile(init.io, .{
+        .sub_path = export_path,
+        .data = exported.source,
+    });
+
+    const goto_line = exported.lineForAddress(chip8.cpu.program_counter) orelse exported.lineForAddress(assembly.ROM_START) orelse 1;
+    if (try isVsCodeAvailable(init)) {
+        try openInVsCode(init, export_path, goto_line);
+        ui_state.setStatusFmt("Opened source in VS Code: {s}", .{export_path});
+    } else {
+        ui_state.setStatusFmt("Exported source: {s}", .{export_path});
+    }
+}
+
+fn isVsCodeAvailable(init: *const std.process.Init) !bool {
+    const result = try std.process.run(init.gpa, init.io, .{
+        .argv = &.{ "sh", "-c", "command -v code >/dev/null 2>&1" },
+    });
+    defer init.gpa.free(result.stdout);
+    defer init.gpa.free(result.stderr);
+    return switch (result.term) {
+        .exited => |code| code == 0,
+        else => false,
+    };
+}
+
+fn openInVsCode(init: *const std.process.Init, path: []const u8, line: usize) !void {
+    const goto_target = try cli.buildEditorGotoTargetAlloc(init.gpa, path, line);
+    defer init.gpa.free(goto_target);
+
+    var child = try std.process.spawn(init.io, .{
+        .argv = &.{
+            "sh",
+            "-c",
+            "command -v code >/dev/null 2>&1 || exit 127; code --goto \"$1\" >/dev/null 2>&1 &",
+            "sh",
+            goto_target,
+        },
+        .stdin = .ignore,
+        .stdout = .ignore,
+        .stderr = .ignore,
+    });
+    _ = try child.wait(init.io);
+}
+
+fn printCliUsage(init: std.process.Init, err: cli.ParseError) !void {
+    var stderr_buffer: [2048]u8 = undefined;
+    var stderr_writer = std.Io.File.stderr().writer(init.io, &stderr_buffer);
+    const stderr = &stderr_writer.interface;
+
+    try stderr.print("{s}\n\n{s}\n", .{ @errorName(err), cli.usage() });
+    try stderr.flush();
+}
+
+fn runDisasmCommand(init: std.process.Init, rom_path: []const u8, output_path: ?[]const u8, requested_profile: ?emulation.QuirkProfile) !void {
+    const rom_data = try std.Io.Dir.cwd().readFileAlloc(init.io, rom_path, init.gpa, .limited(cpu_mod.CHIP8_MEMORY_SIZE - @as(usize, assembly.ROM_START)));
+    defer init.gpa.free(rom_data);
+
+    const sha = persistence.computeRomSha256(rom_data);
+    const sha_hex = try persistence.sha256HexAlloc(init.gpa, sha);
+    defer init.gpa.free(sha_hex);
+
+    var exported = try assembly.exportAnnotatedSource(init.gpa, .{
+        .rom_name = persistence.basename(rom_path),
+        .sha256_hex = sha_hex,
+        .profile = requested_profile orelse assembly.inferProfile(rom_data),
+    }, rom_data);
+    defer exported.deinit(init.gpa);
+
+    if (output_path) |path| {
+        try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = path, .data = exported.source });
+        return;
+    }
+
+    var stdout_buffer: [4096]u8 = undefined;
+    var stdout_writer = std.Io.File.stdout().writer(init.io, &stdout_buffer);
+    const stdout = &stdout_writer.interface;
+    try stdout.writeAll(exported.source);
+    try stdout.flush();
+}
+
+fn runAssembleCommand(init: std.process.Init, source_path: []const u8, output_path: ?[]const u8) !void {
+    const source = try std.Io.Dir.cwd().readFileAlloc(init.io, source_path, init.gpa, .limited(1024 * 1024));
+    defer init.gpa.free(source);
+
+    var assembled = try assembly.assembleSource(init.gpa, source);
+    defer assembled.deinit(init.gpa);
+
+    if (assembled.diagnostics.items.len > 0) {
+        try printDiagnostics(init, source_path, assembled.diagnostics.items);
+        std.process.exit(1);
+    }
+
+    const final_path = if (output_path) |path|
+        try init.gpa.dupe(u8, path)
+    else
+        try cli.defaultAsmOutputPathAlloc(init.gpa, source_path);
+    defer init.gpa.free(final_path);
+
+    try std.Io.Dir.cwd().writeFile(init.io, .{
+        .sub_path = final_path,
+        .data = assembled.bytes.?,
+    });
+}
+
+fn runCheckCommand(init: std.process.Init, source_path: []const u8) !void {
+    const source = try std.Io.Dir.cwd().readFileAlloc(init.io, source_path, init.gpa, .limited(1024 * 1024));
+    defer init.gpa.free(source);
+
+    var assembled = try assembly.assembleSource(init.gpa, source);
+    defer assembled.deinit(init.gpa);
+
+    if (assembled.diagnostics.items.len > 0) {
+        try printDiagnostics(init, source_path, assembled.diagnostics.items);
+        std.process.exit(1);
+    }
+}
+
+fn printDiagnostics(init: std.process.Init, path: []const u8, diagnostics: []const assembly.Diagnostic) !void {
+    var stderr_buffer: [4096]u8 = undefined;
+    var stderr_writer = std.Io.File.stderr().writer(init.io, &stderr_buffer);
+    const stderr = &stderr_writer.interface;
+    for (diagnostics) |diag| {
+        try stderr.print("{s}:{d}:{d}: {s}\n", .{ path, diag.line, diag.column, diag.message });
+    }
+    try stderr.flush();
 }
 
 fn peekOpcode(chip8: *const Chip8, pc: u16) ?u16 {
@@ -580,7 +804,10 @@ fn isCallOpcode(opcode: u16) bool {
 fn cycleProfile(profile: emulation.QuirkProfile) emulation.QuirkProfile {
     return switch (profile) {
         .modern => .vip_legacy,
-        .vip_legacy => .modern,
+        .vip_legacy => .schip_11,
+        .schip_11 => .xo_chip,
+        .xo_chip => .octo_xo,
+        .octo_xo => .modern,
     };
 }
 
@@ -639,7 +866,7 @@ fn breakpointAddressAtPoint(ui: layout.LayoutMetrics, pc: u16, scroll: i32, x: i
     if (row < 0 or row >= @as(i32, @intCast(ui.disasm_rows_visible))) return null;
     const start_addr = @max(@as(i32, @intCast(pc)) + scroll * 2, 0);
     const addr = start_addr + row * 2;
-    if (addr < 0 or addr >= 4096 - 1) return null;
+    if (addr < 0 or addr >= cpu_mod.CHIP8_MEMORY_SIZE - 1) return null;
     return @intCast(addr);
 }
 

@@ -42,6 +42,7 @@ pub const TraceEndpoint = union(enum) {
         y: u8,
         w: u8,
         h: u8,
+        plane_mask: u8 = 1,
         wraps: bool = false,
         full_screen: bool = false,
     },
@@ -81,7 +82,9 @@ pub const MicroOp = struct {
 
 pub const TraceEntry = struct {
     pc: u16 = 0,
-    opcode: u16 = 0,
+    opcode_hi: u16 = 0,
+    opcode_lo: u16 = 0,
+    byte_len: u8 = 2,
     tag: TraceTag = .fetch,
     source: TraceEndpoint = .none,
     destination: TraceEndpoint = .none,
@@ -89,10 +92,10 @@ pub const TraceEntry = struct {
     micro_ops: [MAX_MICRO_OPS]MicroOp = [_]MicroOp{EMPTY_MICRO_OP} ** MAX_MICRO_OPS,
     micro_op_len: u8 = 0,
 
-    pub fn init(pc: u16, opcode: u16, tag: TraceTag) TraceEntry {
+    pub fn init(pc: u16, opcode_hi: u16, tag: TraceTag) TraceEntry {
         return .{
             .pc = pc,
-            .opcode = opcode,
+            .opcode_hi = opcode_hi,
             .tag = tag,
         };
     }
@@ -166,12 +169,13 @@ pub fn stackEndpoint(index: usize, len: usize) TraceEndpoint {
     } };
 }
 
-pub fn displayEndpoint(x: usize, y: usize, w: usize, h: usize, wraps: bool, full_screen: bool) TraceEndpoint {
+pub fn displayEndpoint(x: usize, y: usize, w: usize, h: usize, plane_mask: u8, wraps: bool, full_screen: bool) TraceEndpoint {
     return .{ .display = .{
         .x = @intCast(@min(x, std.math.maxInt(u8))),
         .y = @intCast(@min(y, std.math.maxInt(u8))),
         .w = @intCast(@min(w, std.math.maxInt(u8))),
         .h = @intCast(@min(h, std.math.maxInt(u8))),
+        .plane_mask = plane_mask,
         .wraps = wraps,
         .full_screen = full_screen,
     } };

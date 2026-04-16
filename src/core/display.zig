@@ -1,5 +1,6 @@
 const std = @import("std");
 const rl = @import("raylib");
+const assembly = @import("assembly.zig");
 const chip8_mod = @import("chip8.zig");
 const cpu_mod = @import("cpu.zig");
 const Instruction = cpu_mod.Instruction;
@@ -83,6 +84,7 @@ pub fn renderAll(
     mem_scroll: *i32,
     disasm_scroll: *i32,
     muted: bool,
+    rom_analysis: ?*const assembly.RomAnalysis,
     rom_name: ?[]const u8,
 ) void {
     anim_tick +%= 1;
@@ -113,13 +115,13 @@ pub fn renderAll(
 
     renderDisplay(cpu, ui.display, ui.display_scale, settings, active_trace, show_trace_focus);
     renderRegisters(cpu, state, ui.registers, ui_state.last_latched_key, settings, active_trace, show_trace_focus);
-    renderDisassembler(cpu, memory, debugger_state, ui.disassembler, ui.disasm_rows_visible, disasm_scroll.*);
+    renderCodePanel(cpu, memory, debugger_state, ui.disassembler, ui.disasm_rows_visible, disasm_scroll.*, rom_analysis);
     renderMiddlePanel(cpu, memory, debugger_state, ui.gutter);
     renderMemoryView(cpu, memory, ui.memory, ui.memory_rows_visible, mem_scroll.*, active_trace, show_trace_focus);
     if (show_trace_focus) {
         if (active_trace) |entry| renderTraceConnector(entry, ui, mem_scroll.*);
     }
-    renderFooter(ui.footer, ui.footer_two_rows, cpu_hz, cpu.sound_timer, muted, chip8.config.quirk_profile, ui_state.active_save_slot, settings.volume, rom_name);
+    renderFooter(ui.footer, ui.footer_two_rows, cpu_hz, cpu.sound_timer, muted, chip8.config.quirk_profile, ui_state.active_save_slot, settings.volume, ui_state.status(), rom_name);
 
     if (overlay_open) {
         renderOverlay(ui, ui_state, debugger_state, recent_roms);
@@ -255,6 +257,7 @@ fn formatTraceSummary(entry: debugger_mod.TraceEntry, buf: []u8) []const u8 {
     var dst_buf: [48]u8 = undefined;
     const src = endpointDetailLabel(entry.source, &src_buf);
     const dst = endpointDetailLabel(entry.destination, &dst_buf);
+    const inst = traceInstruction(entry);
     return switch (entry.tag) {
         .key => if (entry.waits_for_key)
             std.fmt.bufPrint(buf, "{s} -> {s} (waiting)", .{ src, dst }) catch ""
@@ -272,12 +275,26 @@ fn formatTraceSummary(entry: debugger_mod.TraceEntry, buf: []u8) []const u8 {
             std.fmt.bufPrint(buf, "jump -> {X:0>3}", .{target}) catch ""
         else
             copyInto(buf, "branch"),
-        .skip => Instruction.decode(entry.opcode).format(buf),
+        .skip => inst.format(buf),
         .timer => std.fmt.bufPrint(buf, "{s} -> {s}", .{ src, dst }) catch "",
-        .alu => Instruction.decode(entry.opcode).format(buf),
-        .fetch => std.fmt.bufPrint(buf, "fetch {X:0>4}", .{entry.opcode}) catch "",
-        .misc => Instruction.decode(entry.opcode).format(buf),
+        .alu => inst.format(buf),
+        .fetch => formatTraceOpcodeText(entry, buf),
+        .misc => inst.format(buf),
     };
+}
+
+fn traceInstruction(entry: debugger_mod.TraceEntry) Instruction {
+    return if (entry.byte_len == 4)
+        .{ .ld_i_long = entry.opcode_lo }
+    else
+        Instruction.decode(entry.opcode_hi);
+}
+
+fn formatTraceOpcodeText(entry: debugger_mod.TraceEntry, buf: []u8) []const u8 {
+    return if (entry.byte_len == 4)
+        std.fmt.bufPrint(buf, "{X:0>4} {X:0>4}", .{ entry.opcode_hi, entry.opcode_lo }) catch ""
+    else
+        std.fmt.bufPrint(buf, "{X:0>4}", .{entry.opcode_hi}) catch "";
 }
 
 fn formatTraceBadges(entry: debugger_mod.TraceEntry, buf: []u8) []const u8 {
@@ -498,7 +515,19 @@ fn traceDisplayFocus(entry: debugger_mod.TraceEntry) ?DisplayFocus {
     return null;
 }
 
-fn drawDisplayFocus(panel: layout.PanelRect, scale: i32, focus: DisplayFocus, color: rl.Color) void {
+fn displayCellWidth(panel: layout.PanelRect, mode: cpu_mod.DisplayMode) f32 {
+    const logical_w_i32: i32 = if (mode == .hires) cpu_mod.DISPLAY_HIRES_WIDTH else cpu_mod.DISPLAY_WIDTH;
+    const logical_w: f32 = @floatFromInt(logical_w_i32);
+    return @as(f32, @floatFromInt(panel.w)) / logical_w;
+}
+
+fn displayCellHeight(panel: layout.PanelRect, mode: cpu_mod.DisplayMode) f32 {
+    const logical_h_i32: i32 = if (mode == .hires) cpu_mod.DISPLAY_HIRES_HEIGHT else cpu_mod.DISPLAY_HEIGHT;
+    const logical_h: f32 = @floatFromInt(logical_h_i32);
+    return @as(f32, @floatFromInt(panel.h)) / logical_h;
+}
+
+fn drawDisplayFocus(panel: layout.PanelRect, cpu: *const cpu_mod.CPU, focus: DisplayFocus, color: rl.Color) void {
     if (focus.full_screen) {
         rl.drawRectangleLines(panel.x, panel.y, panel.w, panel.h, color);
         return;
@@ -508,37 +537,41 @@ fn drawDisplayFocus(panel: layout.PanelRect, scale: i32, focus: DisplayFocus, co
     var height = @as(i32, @max(focus.h, 1));
     const start_x = @as(i32, focus.x);
     const start_y = @as(i32, focus.y);
+    const logical_w: i32 = @intCast(cpu.displayWidth());
+    const logical_h: i32 = @intCast(cpu.displayHeight());
 
     if (!focus.wraps) {
-        if (start_x >= cpu_mod.DISPLAY_WIDTH or start_y >= cpu_mod.DISPLAY_HEIGHT) return;
-        width = @min(width, cpu_mod.DISPLAY_WIDTH - start_x);
-        height = @min(height, cpu_mod.DISPLAY_HEIGHT - start_y);
+        if (start_x >= logical_w or start_y >= logical_h) return;
+        width = @min(width, logical_w - start_x);
+        height = @min(height, logical_h - start_y);
     }
 
-    drawDisplayFocusRect(panel, scale, start_x, start_y, width, height, color);
+    drawDisplayFocusRect(panel, cpu.display_mode, start_x, start_y, width, height, color);
 
     if (!focus.wraps) return;
 
-    const overflow_x = start_x + width - cpu_mod.DISPLAY_WIDTH;
-    const overflow_y = start_y + height - cpu_mod.DISPLAY_HEIGHT;
+    const overflow_x = start_x + width - logical_w;
+    const overflow_y = start_y + height - logical_h;
 
     if (overflow_x > 0) {
-        drawDisplayFocusRect(panel, scale, 0, start_y, overflow_x, height, color);
+        drawDisplayFocusRect(panel, cpu.display_mode, 0, start_y, overflow_x, height, color);
     }
     if (overflow_y > 0) {
-        drawDisplayFocusRect(panel, scale, start_x, 0, width, overflow_y, color);
+        drawDisplayFocusRect(panel, cpu.display_mode, start_x, 0, width, overflow_y, color);
     }
     if (overflow_x > 0 and overflow_y > 0) {
-        drawDisplayFocusRect(panel, scale, 0, 0, overflow_x, overflow_y, color);
+        drawDisplayFocusRect(panel, cpu.display_mode, 0, 0, overflow_x, overflow_y, color);
     }
 }
 
-fn drawDisplayFocusRect(panel: layout.PanelRect, scale: i32, x: i32, y: i32, width: i32, height: i32, color: rl.Color) void {
+fn drawDisplayFocusRect(panel: layout.PanelRect, mode: cpu_mod.DisplayMode, x: i32, y: i32, width: i32, height: i32, color: rl.Color) void {
     if (width <= 0 or height <= 0) return;
-    const rect_x = panel.x + x * scale;
-    const rect_y = panel.y + y * scale;
-    const rect_w = @min(width * scale, panel.right() - rect_x);
-    const rect_h = @min(height * scale, panel.bottom() - rect_y);
+    const cell_w = displayCellWidth(panel, mode);
+    const cell_h = displayCellHeight(panel, mode);
+    const rect_x: i32 = @intFromFloat(@as(f32, @floatFromInt(panel.x)) + @as(f32, @floatFromInt(x)) * cell_w);
+    const rect_y: i32 = @intFromFloat(@as(f32, @floatFromInt(panel.y)) + @as(f32, @floatFromInt(y)) * cell_h);
+    const rect_w = @min(@as(i32, @intFromFloat(@as(f32, @floatFromInt(width)) * cell_w)), panel.right() - rect_x);
+    const rect_h = @min(@as(i32, @intFromFloat(@as(f32, @floatFromInt(height)) * cell_h)), panel.bottom() - rect_y);
     if (rect_w <= 0 or rect_h <= 0) return;
     rl.drawRectangleLines(rect_x, rect_y, rect_w, rect_h, color);
 }
@@ -594,7 +627,11 @@ fn endpointAnchor(endpoint: debugger_mod.TraceEndpoint, ui: layout.LayoutMetrics
         },
         .display => |display_focus| .{
             .panel = ui.display,
-            .y = ui.display.y + @as(i32, display_focus.y) * ui.display_scale + @divTrunc(@max(@as(i32, display_focus.h), 1) * ui.display_scale, 2),
+            .y = @intFromFloat(
+                @as(f32, @floatFromInt(ui.display.y)) +
+                    (@as(f32, @floatFromInt(display_focus.y)) + @as(f32, @floatFromInt(@max(@as(i32, display_focus.h), 1))) * 0.5) *
+                    displayCellHeight(ui.display, if (display_focus.w > cpu_mod.DISPLAY_WIDTH or display_focus.h > cpu_mod.DISPLAY_HEIGHT) .hires else .lores),
+            ),
         },
     };
 }
@@ -602,27 +639,39 @@ fn endpointAnchor(endpoint: debugger_mod.TraceEndpoint, ui: layout.LayoutMetrics
 fn renderDisplay(
     cpu: *const cpu_mod.CPU,
     panel: layout.PanelRect,
-    scale: i32,
+    _: i32,
     settings: persistence.DisplaySettings,
     active_trace: ?debugger_mod.TraceEntry,
     show_trace_focus: bool,
 ) void {
     const primary = primaryAccent(settings);
+    const secondary = blendColor(primary, FG_CYAN, 0.55);
+    const blended = blendColor(primary, secondary, 0.5);
+    const logical_w = cpu.displayWidth();
+    const logical_h = cpu.displayHeight();
+    const cell_w = displayCellWidth(panel, cpu.display_mode);
+    const cell_h = displayCellHeight(panel, cpu.display_mode);
     rl.drawRectangle(panel.x, panel.y, panel.w, panel.h, BG_DARK);
-    for (0..cpu_mod.DISPLAY_HEIGHT) |row| {
-        for (0..cpu_mod.DISPLAY_WIDTH) |col| {
-            if (cpu.display[row * cpu_mod.DISPLAY_WIDTH + col] == 1) {
-                rl.drawRectangle(
-                    panel.x + @as(i32, @intCast(col)) * scale,
-                    panel.y + @as(i32, @intCast(row)) * scale,
-                    scale,
-                    scale,
-                    primary,
-                );
+    for (0..logical_h) |row| {
+        for (0..logical_w) |col| {
+            const pixel = cpu.compositePixel(col, row);
+            if (pixel != 0) {
+                const color = switch (pixel) {
+                    1 => primary,
+                    2 => secondary,
+                    3 => blended,
+                    else => primary,
+                };
+                rl.drawRectangleRec(.{
+                    .x = @as(f32, @floatFromInt(panel.x)) + @as(f32, @floatFromInt(col)) * cell_w,
+                    .y = @as(f32, @floatFromInt(panel.y)) + @as(f32, @floatFromInt(row)) * cell_h,
+                    .width = cell_w,
+                    .height = cell_h,
+                }, color);
             }
         }
     }
-    if (settings.effect == .scanlines and scale > 1) {
+    if (settings.effect == .scanlines and cell_h > 1.5) {
         var y = panel.y;
         while (y < panel.bottom()) : (y += 2) {
             rl.drawRectangle(panel.x, y, panel.w, 1, rl.Color{ .r = 0, .g = 0, .b = 0, .a = 40 });
@@ -639,7 +688,7 @@ fn renderDisplay(
     if (show_trace_focus) {
         if (active_trace) |entry| {
             if (traceDisplayFocus(entry)) |focus| {
-                drawDisplayFocus(panel, scale, focus, withAlpha(primary, 220));
+                drawDisplayFocus(panel, cpu, focus, withAlpha(primary, 220));
             }
         }
     }
@@ -779,24 +828,31 @@ fn renderRegisters(
     }
 }
 
-fn renderDisassembler(
+fn renderCodePanel(
     cpu: *const cpu_mod.CPU,
     memory: *const [cpu_mod.CHIP8_MEMORY_SIZE]u8,
     debugger_state: *const debugger_mod.DebuggerState,
     panel: layout.PanelRect,
     visible_rows: usize,
     scroll: i32,
+    rom_analysis: ?*const assembly.RomAnalysis,
 ) void {
     var header_buf: [32]u8 = undefined;
     const start_addr = @max(@as(i32, @intCast(cpu.program_counter)) + scroll * 2, 0);
     const end_addr = @min(start_addr + @as(i32, @intCast(visible_rows - 1)) * 2, cpu_mod.CHIP8_MEMORY_SIZE - 2);
     const header = std.fmt.bufPrint(&header_buf, "{X:0>3}-{X:0>3}", .{ start_addr, end_addr }) catch "";
 
-    drawPanel(panel, "DISASSEMBLER");
+    drawPanel(panel, "CODE");
     headerInfo(panel, header, TEXT_DIM);
 
     var pc: u16 = @intCast(@min(start_addr, cpu_mod.CHIP8_MEMORY_SIZE - 2));
     var cy = panel.y + layout.HEADER_H + 4;
+    const empty_analysis = assembly.RomAnalysis{
+        .rom_end = assembly.ROM_START,
+        .profile = .modern,
+        .label_targets = [_]bool{false} ** cpu_mod.CHIP8_MEMORY_SIZE,
+    };
+    const analysis = rom_analysis orelse &empty_analysis;
 
     beginPanelClip(panel);
     defer endPanelClip();
@@ -806,10 +862,6 @@ fn renderDisassembler(
         if (cy + layout.LINE_H > panel.bottom()) break;
         if (i % 2 == 1) rl.drawRectangle(panel.x + 1, cy, panel.w - 2, layout.LINE_H, BG_ROW_ALT);
 
-        const opcode: u16 = @as(u16, memory[pc]) << 8 | @as(u16, memory[pc + 1]);
-        const inst = Instruction.decode(opcode);
-        var mnemonic_buf: [32]u8 = undefined;
-        const mnemonic = inst.format(&mnemonic_buf);
         const is_current = pc == cpu.program_counter;
 
         if (is_current) {
@@ -821,19 +873,22 @@ fn renderDisassembler(
             drawText(panel.x + 6, cy, "*", layout.FONT_SIZE, FG_AMBER);
         }
 
-        var line_buf: [64]u8 = undefined;
-        const line = std.fmt.bufPrint(&line_buf, "{X:0>3}: {X:0>4}  {s}", .{ pc, opcode, mnemonic }) catch "???";
-        drawTextFit(
-            panel.x + 18,
-            cy,
-            panel.w - 26,
-            line,
-            layout.FONT_SIZE,
-            if (is_current) FG_GREEN else if (opcode == 0) TEXT_DIM else TEXT_MID,
-        );
+        var opcode_text_buf: [16]u8 = undefined;
+        var asm_buf: [128]u8 = undefined;
+        var comment_buf: [160]u8 = undefined;
+        const row = assembly.formatUiCodeRow(memory, analysis, pc, &opcode_text_buf, &asm_buf, &comment_buf);
+
+        var code_buf: [196]u8 = undefined;
+        const code_text = std.fmt.bufPrint(&code_buf, "{X:0>3}: {s}  {s}", .{ pc, row.opcode_text, row.asm_text }) catch "???";
+        const split_x = panel.x + @max(@divTrunc(panel.w, 2), 188);
+        const code_color = if (is_current) FG_GREEN else if (row.is_db) TEXT_DIM else TEXT_MID;
+        drawTextFit(panel.x + 18, cy, split_x - (panel.x + 24), code_text, layout.FONT_SIZE_SMALL, code_color);
+        if (row.comment_text.len > 0) {
+            drawTextFit(split_x, cy, panel.right() - 8 - split_x, row.comment_text, layout.FONT_SIZE_SMALL, if (is_current) TEXT_BRIGHT else TEXT_DIM);
+        }
 
         cy += layout.LINE_H;
-        pc +%= 2;
+        pc +%= row.byte_len;
     }
 }
 
@@ -887,8 +942,8 @@ fn renderTraceTab(debugger_state: *const debugger_mod.DebuggerState, panel: layo
         if (row % 2 == 1) rl.drawRectangle(panel.x + 1, cy, panel.w - 2, layout.LINE_H_SMALL, BG_ROW_ALT);
         if (is_active) rl.drawRectangle(panel.x + 1, cy, panel.w - 2, layout.LINE_H_SMALL, HIGHLIGHT_CURRENT);
 
-        var opcode_buf: [8]u8 = undefined;
-        const opcode_text = std.fmt.bufPrint(&opcode_buf, "{X:0>4}", .{entry.opcode}) catch "????";
+        var opcode_buf: [16]u8 = undefined;
+        const opcode_text = formatTraceOpcodeText(entry, &opcode_buf);
         var summary_buf: [128]u8 = undefined;
         const summary = formatTraceSummary(entry, &summary_buf);
         var badges_buf: [64]u8 = undefined;
@@ -912,7 +967,7 @@ fn renderCycleTab(debugger_state: *const debugger_mod.DebuggerState, panel: layo
     };
 
     var mnemonic_buf: [32]u8 = undefined;
-    headerInfo(panel, Instruction.decode(entry.opcode).format(&mnemonic_buf), traceTagColor(entry.tag));
+    headerInfo(panel, traceInstruction(entry).format(&mnemonic_buf), traceTagColor(entry.tag));
 
     const body = panel.body();
     const label_w: i32 = 88;
@@ -1101,6 +1156,7 @@ fn renderFooter(
     profile: emulation.QuirkProfile,
     active_save_slot: u8,
     volume: f32,
+    status_text: []const u8,
     rom_name: ?[]const u8,
 ) void {
     rl.drawRectangle(panel.x, panel.y, panel.w, panel.h, BG_HEADER);
@@ -1137,10 +1193,11 @@ fn renderFooter(
         TEXT_DIM;
 
     var subline_buf: [160]u8 = undefined;
+    const footer_body = if (status_text.len > 0) status_text else hint;
     const subline = if (rom_name) |name|
-        std.fmt.bufPrint(&subline_buf, "{s}  |  {s}", .{ name, hint }) catch hint
+        std.fmt.bufPrint(&subline_buf, "{s}  |  {s}", .{ name, footer_body }) catch footer_body
     else
-        hint;
+        footer_body;
 
     if (two_rows) {
         const row1_y = panel.y + 3;

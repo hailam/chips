@@ -1,6 +1,9 @@
 const control = @import("control_spec.zig");
+const emulation = @import("emulation_config.zig");
 
 pub const CPU_HZ_DEFAULT: i32 = 600;
+pub const CPU_HZ_SCHIP_DEFAULT: i32 = 1200;
+pub const CPU_HZ_XO_DEFAULT: i32 = 2400;
 pub const CPU_HZ_MIN: i32 = 60;
 pub const CPU_HZ_MAX: i32 = 3000;
 pub const CPU_HZ_STEP: i32 = 120;
@@ -62,6 +65,24 @@ pub fn applySpeedAction(current_hz: i32, action: control.SpeedAction) i32 {
         .slower => clampCpuHz(current_hz - CPU_HZ_STEP),
         .faster => clampCpuHz(current_hz + CPU_HZ_STEP),
     };
+}
+
+pub fn defaultCpuHzForProfile(profile: emulation.QuirkProfile) i32 {
+    return switch (profile) {
+        .modern, .vip_legacy => CPU_HZ_DEFAULT,
+        .schip_11 => CPU_HZ_SCHIP_DEFAULT,
+        .xo_chip, .octo_xo => CPU_HZ_XO_DEFAULT,
+    };
+}
+
+pub fn preferredStartupCpuHz(saved_hz: ?i32, profile: emulation.QuirkProfile) i32 {
+    const profile_default = defaultCpuHzForProfile(profile);
+    if (saved_hz) |value| {
+        const clamped = clampCpuHz(value);
+        if (clamped == CPU_HZ_DEFAULT and profile_default > CPU_HZ_DEFAULT) return profile_default;
+        return clamped;
+    }
+    return profile_default;
 }
 
 pub fn clampCpuHz(value: i32) i32 {

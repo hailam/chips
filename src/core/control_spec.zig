@@ -33,8 +33,8 @@ pub const SpeedAction = enum {
     faster,
 };
 
-pub const controls_label = "SPACE Run/Pause  N/Shift+N Step/Over  B Break  O Recent  F5/F9 Save/Load  [ ] Speed  M Mute  P Profile  G FX  F11 Full";
-pub const controls_hint = "W/A/S/D or arrows play  Tab switches trace/cycle/watches  ; edits watch  Wheel over Memory, Disassembler, or Trace to scroll";
+pub const controls_label = "SPACE Run/Pause  N/Shift+N Step/Over  B Break  O Recent  F2 Source  F5/F9 Save/Load  [ ] Speed  M Mute  P Profile  G FX  F11 Full";
+pub const controls_hint = "W/A/S/D or arrows play  Tab switches trace/cycle/watches  ; edits watch  Wheel over Memory, Code, or Trace to scroll";
 
 pub const canonical_chip8_bindings = [_]Chip8Binding{
     .{ .chip8_index = 0x0, .physical_key = .x },

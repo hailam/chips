@@ -1,6 +1,6 @@
 # Chip-8 Emulator
 
-A Chip-8 emulator with a built-in debug UI showing registers, memory, and a live disassembler.
+A Chip-8 emulator with a built-in debug UI showing registers, memory, trace/cycle views, and a code panel with annotated assembly.
 
 ## Requirements
 
@@ -20,6 +20,20 @@ Run tests:
 zig build test
 ```
 
+## CLI
+
+```
+chip8 run [rom.ch8]
+chip8 <rom.ch8>
+chip8 disasm rom.ch8 [-o rom.ch8.asm]
+chip8 asm source.asm [-o rom.ch8]
+chip8 check source.asm
+```
+
+- `disasm` exports assembler-friendly annotated CHIP-8 source with `ORG 0x200`, static labels, and inferred pseudocode in comments.
+- `asm` assembles that source back into ROM bytes.
+- `check` validates syntax and label resolution without writing output.
+
 ## Controls
 
 | Key | Action |
@@ -30,12 +44,13 @@ zig build test
 | BACKSPACE | Reset |
 | B | Toggle breakpoint at the current PC (when paused) |
 | O | Open recent ROM overlay |
+| F2 | Export annotated source and open it in VS Code when `code` is on `PATH` |
 | F5 / F9 | Quick save / quick load current slot |
 | Shift + F5 / Shift + F9 | Open save/load slot overlay |
 | [ / ] | Adjust CPU speed in 120 Hz steps |
 | M | Toggle mute |
 | P | Toggle compatibility profile |
-| Tab | Cycle Flow / History / Watches gutter tabs |
+| Tab | Cycle Trace / Cycle / Watches middle tabs |
 | ; | Edit the selected watch address |
 | G / Shift + G | Cycle palette / display effect |
 | F11 | Toggle fullscreen |
@@ -44,7 +59,13 @@ zig build test
 
 Runtime footer text uses:
 
-`SPACE Run/Pause  N/Shift+N Step/Over  B Break  O Recent  F5/F9 Save/Load  [ ] Speed  M Mute  P Profile  G FX  F11 Full`
+`SPACE Run/Pause  N/Shift+N Step/Over  B Break  O Recent  F2 Source  F5/F9 Save/Load  [ ] Speed  M Mute  P Profile  G FX  F11 Full`
+
+## Code Panel
+
+- The right-side code panel shows exact address/opcode/mnemonic data with inferred pseudocode comments on the same row.
+- The left side of each line stays authoritative; the right side is just explanatory.
+- Breakpoint gutter clicks, address scroll, and current-PC tracking work on that single combined view.
 
 ## Keypad
 
@@ -63,3 +84,4 @@ Arrow keys mirror the same CHIP-8 slots as `W/A/S/D`: `Up -> 5`, `Left -> 7`, `D
 - Profiles: `modern` and `vip_legacy` are remembered per ROM.
 - Save states: slots `1..5` are stored under your user app-data directory together with recent ROMs and display settings.
 - Drag/drop: dropping a ROM into the window loads it immediately and applies any remembered profile/speed for that ROM.
+- Source export: `F2` writes annotated source under your app-data `exports/<rom_sha256>/` directory and jumps to the current PC line when VS Code is available.
