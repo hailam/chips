@@ -11,6 +11,23 @@ pub const Command = union(enum) {
     check: struct {
         source_path: []const u8,
     },
+    get: struct {
+        source: []const u8,
+    },
+    search: struct {
+        query: []const u8,
+    },
+    list: struct {},
+    remove: struct {
+        id: []const u8,
+    },
+    update: struct {
+        id: ?[]const u8,
+    },
+    refresh: struct {},
+    registries: struct {},
+    sync: struct {},
+    help: struct {},
 };
 
 pub const RunCommand = struct {
@@ -34,6 +51,9 @@ pub const ParseError = error{
 pub fn parseArgs(args: []const []const u8) ParseError!Command {
     if (args.len == 0) return .{ .run = .{ .rom_path = null, .profile = null } };
 
+    if (std.mem.eql(u8, args[0], "help") or std.mem.eql(u8, args[0], "-h") or std.mem.eql(u8, args[0], "--help")) {
+        return .{ .help = .{} };
+    }
     if (std.mem.eql(u8, args[0], "run")) {
         return .{ .run = try parseRunArgs(args[1..]) };
     }
@@ -51,6 +71,33 @@ pub fn parseArgs(args: []const []const u8) ParseError!Command {
     if (std.mem.eql(u8, args[0], "check")) {
         if (args.len != 2) return if (args.len < 2) error.MissingOperand else error.UnexpectedArgument;
         return .{ .check = .{ .source_path = args[1] } };
+    }
+    if (std.mem.eql(u8, args[0], "get")) {
+        if (args.len < 2) return error.MissingOperand;
+        return .{ .get = .{ .source = args[1] } };
+    }
+    if (std.mem.eql(u8, args[0], "search")) {
+        if (args.len < 2) return error.MissingOperand;
+        return .{ .search = .{ .query = args[1] } };
+    }
+    if (std.mem.eql(u8, args[0], "list")) {
+        return .{ .list = .{} };
+    }
+    if (std.mem.eql(u8, args[0], "remove")) {
+        if (args.len < 2) return error.MissingOperand;
+        return .{ .remove = .{ .id = args[1] } };
+    }
+    if (std.mem.eql(u8, args[0], "update")) {
+        return .{ .update = .{ .id = if (args.len > 1) args[1] else null } };
+    }
+    if (std.mem.eql(u8, args[0], "refresh")) {
+        return .{ .refresh = .{} };
+    }
+    if (std.mem.eql(u8, args[0], "registries")) {
+        return .{ .registries = .{} };
+    }
+    if (std.mem.eql(u8, args[0], "sync")) {
+        return .{ .sync = .{} };
     }
 
     return .{ .run = try parseRunArgs(args) };
@@ -78,6 +125,14 @@ pub fn usage() []const u8 {
         \\  chip8 disasm <rom.ch8> [-o output.asm] [--profile modern|vip_legacy|schip_11|xo_chip|octo_xo]
         \\  chip8 asm <source.asm> [-o output.ch8]
         \\  chip8 check <source.asm>
+        \\  chip8 get <source>
+        \\  chip8 search <query>
+        \\  chip8 list
+        \\  chip8 remove <id>
+        \\  chip8 update [<id>]
+        \\  chip8 refresh
+        \\  chip8 registries
+        \\  chip8 sync
     ;
 }
 

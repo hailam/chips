@@ -3,6 +3,11 @@ const rl = @import("raylib");
 const assembly = @import("core/assembly.zig");
 const Chip8 = @import("core/chip8.zig").Chip8;
 const cli = @import("core/cli.zig");
+const registry = @import("core/registry.zig");
+const url_mod = @import("core/url.zig");
+const config_mod = @import("core/config.zig");
+const models = @import("core/registry_models.zig");
+const cache = @import("core/cache.zig");
 const control = @import("core/control_spec.zig");
 const cpu_mod = @import("core/cpu.zig");
 const debugger_mod = @import("core/debugger.zig");
@@ -39,11 +44,43 @@ pub fn main(init: std.process.Init) !void {
         std.process.exit(1);
     };
 
+    runCommand(init, command) catch |err| {
+        if (err == error.FileNotFound) {
+            std.debug.print("Error: File not found.\n", .{});
+        } else if (err == error.AccessDenied) {
+            std.debug.print("Error: Access denied.\n", .{});
+        } else if (err == error.InvalidUrl) {
+            std.debug.print("Error: Invalid URL or ROM identifier.\n", .{});
+        } else {
+            // For other errors, use a name check to avoid compile-time error set issues
+            const err_name = @errorName(err);
+            if (std.mem.eql(u8, err_name, "NetworkUnavailable")) {
+                std.debug.print("Error: Network unavailable.\n", .{});
+            } else if (std.mem.eql(u8, err_name, "RateLimited")) {
+                std.debug.print("Error: GitHub API rate limit exceeded. Try again later or set GITHUB_TOKEN.\n", .{});
+            } else {
+                std.debug.print("Error: {s}\n", .{err_name});
+            }
+        }
+        std.process.exit(1);
+    };
+}
+
+fn runCommand(init: std.process.Init, command: cli.Command) !void {
     switch (command) {
         .run => |cmd| try runGui(init, cmd.rom_path, cmd.profile),
         .disasm => |cmd| try runDisasmCommand(init, cmd.rom_path, cmd.output_path, cmd.profile),
         .assemble => |cmd| try runAssembleCommand(init, cmd.source_path, cmd.output_path),
         .check => |cmd| try runCheckCommand(init, cmd.source_path),
+        .get => |cmd| try runGetCommand(init, cmd.source),
+        .search => |cmd| try runSearchCommand(init, cmd.query),
+        .list => try runListCommand(init),
+        .remove => |cmd| try runRemoveCommand(init, cmd.id),
+        .update => |cmd| try runUpdateCommand(init, cmd.id),
+        .refresh => try runRefreshCommand(init),
+        .registries => try runRegistriesCommand(init),
+        .sync => try runSyncCommand(init),
+        .help => try runHelpCommand(init),
     }
 }
 
@@ -86,8 +123,9 @@ fn runGui(init: std.process.Init, initial_rom_path: ?[]const u8, requested_profi
     var disasm_scroll: i32 = 0;
 
     if (initial_rom_path) |rom_path| {
+        var mutable_init = init;
         loaded_rom = try loadRomIntoRuntime(
-            &init,
+            &mutable_init,
             app_data_root,
             &app_state,
             rom_path,
@@ -401,7 +439,8 @@ fn handleOverlayInput(
             if (rl.isKeyPressed(.up)) ui_state.recent_selection -|= 1;
             if (rl.isKeyPressed(.enter)) {
                 const recent = app_state.recent_roms.items[ui_state.recent_selection];
-                const new_rom = try loadRomIntoRuntime(init, app_data_root, app_state, recent.path, null, chip8, timing_state, ui_state);
+                var mutable_init = init.*;
+                const new_rom = try loadRomIntoRuntime(&mutable_init, app_data_root, app_state, recent.path, null, chip8, timing_state, ui_state);
                 if (loaded_rom.*) |*current| current.deinit(init.gpa);
                 loaded_rom.* = new_rom;
                 debugger_state.* = debugger_mod.DebuggerState.init();
@@ -470,8 +509,25 @@ fn handleOverlayInput(
     }
 }
 
+fn runSyncCommand(init: std.process.Init) !void {
+    const app_data_root = try persistence.defaultAppDataRootAlloc(init.gpa, init.minimal.environ);
+    defer init.gpa.free(app_data_root);
+
+    const config = try config_mod.loadConfig(init.io, init.gpa, app_data_root);
+    defer config.deinit(init.gpa);
+
+    std.debug.print("Synchronizing local registries...\n", .{});
+    try registry.syncLocalRegistries(init.io, init.gpa, app_data_root, config);
+    std.debug.print("Sync complete.\n", .{});
+}
+
+fn runHelpCommand(init: std.process.Init) !void {
+    _ = init;
+    std.debug.print("{s}\n", .{cli.usage()});
+}
+
 fn loadRomIntoRuntime(
-    init: *const std.process.Init,
+    init: *std.process.Init,
     app_data_root: []const u8,
     app_state: *persistence.AppState,
     rom_path: []const u8,
@@ -480,8 +536,24 @@ fn loadRomIntoRuntime(
     timing_state: *timing.TimingState,
     ui_state: *ui_mod.UiState,
 ) !LoadedRom {
-    const rom_data = try std.Io.Dir.cwd().readFileAlloc(init.io, rom_path, init.gpa, .limited(cpu_mod.CHIP8_MEMORY_SIZE - @as(usize, 0x200)));
+    var rom_data: []u8 = undefined;
+
+    // Try to open the path directly first
+    rom_data = std.Io.Dir.cwd().readFileAlloc(init.io, rom_path, init.gpa, .limited(cpu_mod.CHIP8_MEMORY_SIZE - @as(usize, 0x200))) catch |err| blk: {
+        if (err == error.FileNotFound) {
+            // Try in installed_roms
+            const installed_path = try std.fmt.allocPrint(init.gpa, "installed_roms/{s}.ch8", .{rom_path});
+            defer init.gpa.free(installed_path);
+            
+            const full_installed_path = try std.fmt.allocPrint(init.gpa, "{s}/{s}", .{ app_data_root, installed_path });
+            defer init.gpa.free(full_installed_path);
+
+            break :blk try std.Io.Dir.cwd().readFileAlloc(init.io, full_installed_path, init.gpa, .limited(cpu_mod.CHIP8_MEMORY_SIZE - @as(usize, 0x200)));
+        }
+        return err;
+    };
     errdefer init.gpa.free(rom_data);
+
 
     const sha256 = persistence.computeRomSha256(rom_data);
     const sha256_hex = try persistence.sha256HexAlloc(init.gpa, sha256);
@@ -630,7 +702,8 @@ fn loadDroppedRom(
     while (idx < dropped.count) : (idx += 1) {
         const path = std.mem.span(dropped.paths[idx]);
         if (hasSupportedRomExtension(path)) {
-            return try loadRomIntoRuntime(init, app_data_root, app_state, path, null, chip8, timing_state, ui_state);
+            var mutable_init = init.*;
+            return try loadRomIntoRuntime(&mutable_init, app_data_root, app_state, path, null, chip8, timing_state, ui_state);
         }
     }
     return null;
@@ -707,6 +780,113 @@ fn openInVsCode(init: *const std.process.Init, path: []const u8, line: usize) !v
         .stderr = .ignore,
     });
     _ = try child.wait(init.io);
+}
+
+fn runGetCommand(init: std.process.Init, source: []const u8) !void {
+    const app_data_root = try persistence.defaultAppDataRootAlloc(init.gpa, init.minimal.environ);
+    defer init.gpa.free(app_data_root);
+
+    const config = try config_mod.loadConfig(init.io, init.gpa, app_data_root);
+    defer config.deinit(init.gpa);
+
+    const source_url = try url_mod.parse(init.gpa, source);
+    defer source_url.deinit(init.gpa);
+
+    std.debug.print("Fetching {s}...\n", .{source});
+    const installed = try registry.install(init.io, init.gpa, source_url, app_data_root, config);
+    defer installed.deinit(init.gpa);
+
+    std.debug.print("Successfully installed {s} to {s}\n", .{ installed.metadata.id, installed.local.path });
+}
+
+fn runSearchCommand(init: std.process.Init, query: []const u8) !void {
+    const app_data_root = try persistence.defaultAppDataRootAlloc(init.gpa, init.minimal.environ);
+    defer init.gpa.free(app_data_root);
+
+    const config = try config_mod.loadConfig(init.io, init.gpa, app_data_root);
+    defer config.deinit(init.gpa);
+
+    std.debug.print("Searching for \"{s}\" across registries...\n", .{query});
+    const results = try registry.search(init.io, init.gpa, query, config);
+    defer {
+        for (results) |r| r.deinit(init.gpa);
+        init.gpa.free(results);
+    }
+
+    if (results.len == 0) {
+        std.debug.print("No results found.\n", .{});
+        return;
+    }
+
+    for (results) |res| {
+        std.debug.print("  - {s} [{s}]\n", .{ res.metadata.id, res.registry_name orelse "unknown" });
+        if (res.metadata.source_url) |url| std.debug.print("    Source: {s}\n", .{url});
+    }
+}
+
+fn runListCommand(init: std.process.Init) !void {
+    const app_data_root = try persistence.defaultAppDataRootAlloc(init.gpa, init.minimal.environ);
+    defer init.gpa.free(app_data_root);
+
+    const installed = try registry.listInstalled(init.io, init.gpa, app_data_root);
+    defer {
+        for (installed) |i| i.deinit(init.gpa);
+        init.gpa.free(installed);
+    }
+
+    if (installed.len == 0) {
+        std.debug.print("No ROMs installed.\n", .{});
+        return;
+    }
+
+    std.debug.print("Installed ROMs:\n", .{});
+    for (installed) |rom| {
+        std.debug.print("  - {s} ({s})\n", .{ rom.metadata.id, rom.metadata.name orelse "unnamed" });
+    }
+}
+
+fn runRemoveCommand(init: std.process.Init, id: []const u8) !void {
+    const app_data_root = try persistence.defaultAppDataRootAlloc(init.gpa, init.minimal.environ);
+    defer init.gpa.free(app_data_root);
+
+    try registry.remove(init.io, init.gpa, id, app_data_root);
+    std.debug.print("Removed {s}.\n", .{id});
+}
+
+fn runUpdateCommand(init: std.process.Init, id: ?[]const u8) !void {
+    _ = init;
+    _ = id;
+    std.debug.print("Update is not yet implemented.\n", .{});
+}
+
+fn runRefreshCommand(init: std.process.Init) !void {
+    const app_data_root = try persistence.defaultAppDataRootAlloc(init.gpa, init.minimal.environ);
+    defer init.gpa.free(app_data_root);
+
+    try cache.clearCache(init.io, app_data_root);
+    std.debug.print("Cache cleared.\n", .{});
+}
+
+fn runRegistriesCommand(init: std.process.Init) !void {
+    const app_data_root = try persistence.defaultAppDataRootAlloc(init.gpa, init.minimal.environ);
+    defer init.gpa.free(app_data_root);
+
+    const config = try config_mod.loadConfig(init.io, init.gpa, app_data_root);
+    defer config.deinit(init.gpa);
+
+    std.debug.print("Known Registries:\n", .{});
+    for (config.known_registries) |reg| {
+        if (reg.repo) |repo| {
+            std.debug.print("  - {s} (GitHub: {s})\n", .{ reg.name, repo });
+        } else if (reg.local_path) |path| {
+            std.debug.print("  - {s} (Local: {s})\n", .{ reg.name, path });
+        } else {
+            std.debug.print("  - {s}\n", .{reg.name});
+        }
+        for (reg.globs) |glob| {
+            std.debug.print("      {s}\n", .{glob});
+        }
+    }
 }
 
 fn printCliUsage(init: std.process.Init, err: cli.ParseError) !void {
