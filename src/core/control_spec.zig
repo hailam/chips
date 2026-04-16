@@ -33,8 +33,8 @@ pub const SpeedAction = enum {
     faster,
 };
 
-pub const controls_label = "SPACE Run/Pause  N Step  BKSP Reset  M Mute  [ ] Speed";
-pub const controls_hint = "W/A/S/D or arrows play  Wheel over Memory or Disassembler to scroll";
+pub const controls_label = "SPACE Run/Pause  N/Shift+N Step/Over  B Break  O Recent  F5/F9 Save/Load  [ ] Speed  M Mute  P Profile  G FX  F11 Full";
+pub const controls_hint = "W/A/S/D or arrows play  Tab switches trace/cycle/watches  ; edits watch  Wheel over Memory, Disassembler, or Trace to scroll";
 
 pub const canonical_chip8_bindings = [_]Chip8Binding{
     .{ .chip8_index = 0x0, .physical_key = .x },
@@ -77,13 +77,6 @@ pub fn foldPressedChip8Keys(pressed: []const bool) [16]bool {
     return keys;
 }
 
-pub fn applySpeedAction(current: i32, action: SpeedAction) i32 {
-    return switch (action) {
-        .slower => clampSpeed(current - 2),
-        .faster => clampSpeed(current + 2),
-    };
-}
-
 pub fn physicalKeyIndex(key: PhysicalKey) usize {
     return @intFromEnum(key);
 }
@@ -94,10 +87,4 @@ fn foldBindings(keys: *[16]bool, pressed: []const bool, bindings: []const Chip8B
             keys[binding.chip8_index] = true;
         }
     }
-}
-
-fn clampSpeed(value: i32) i32 {
-    if (value < 1) return 1;
-    if (value > 50) return 50;
-    return value;
 }

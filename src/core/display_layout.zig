@@ -7,11 +7,16 @@ pub const DISPLAY_BASE_H = cpu_mod.DISPLAY_HEIGHT;
 
 pub const MARGIN: i32 = 12;
 pub const HEADER_H: i32 = 24;
-pub const GUTTER_H: i32 = 66;
 pub const FONT_SIZE: f32 = 15;
 pub const FONT_SIZE_SMALL: f32 = 13;
 pub const LINE_H: i32 = 18;
 pub const LINE_H_SMALL: i32 = 15;
+pub const REG_ROW_H: i32 = 14;
+pub const REG_KEYPAD_ROWS: i32 = 4;
+pub const REG_STACK_SECTION_H: i32 = REG_ROW_H * REG_KEYPAD_ROWS;
+pub const REG_CONTENT_MIN_H: i32 = HEADER_H + 2 + REG_ROW_H * 4 + 2 + 4 + REG_ROW_H * 3 + 2 + 4 + REG_STACK_SECTION_H + 8;
+pub const GUTTER_CONTENT_MIN_H: i32 = HEADER_H + 6 + LINE_H_SMALL * 6 + LINE_H_SMALL + LINE_H_SMALL * 4 + 10;
+pub const GUTTER_H: i32 = GUTTER_CONTENT_MIN_H;
 
 pub const DEFAULT_DISPLAY_SCALE: i32 = 8;
 pub const MIN_DISPLAY_SCALE: i32 = 5;
@@ -19,8 +24,8 @@ const MAX_DISPLAY_SCALE: i32 = 16;
 
 pub const RIGHT_MIN_W: i32 = 360;
 pub const RIGHT_DEFAULT_W: i32 = 420;
-pub const REG_TARGET_H: i32 = 180;
-pub const REG_MIN_H: i32 = 168;
+pub const REG_TARGET_H: i32 = REG_CONTENT_MIN_H;
+pub const REG_MIN_H: i32 = REG_CONTENT_MIN_H;
 pub const DISASM_MIN_H: i32 = HEADER_H + LINE_H * 2 + 8;
 pub const MEMORY_MIN_H: i32 = 170;
 pub const MEMORY_DEFAULT_H: i32 = 326;

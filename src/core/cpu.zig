@@ -1,4 +1,6 @@
 const std = @import("std");
+const emulation = @import("emulation_config.zig");
+const trace_mod = @import("trace.zig");
 
 pub const CHIP8_REGISTER_COUNT = 16;
 pub const CHIP8_STACK_SIZE = 16;
@@ -25,9 +27,9 @@ pub const Instruction = union(enum) {
     xor_reg: struct { vx: u4, vy: u4 }, // 8XY3
     add_reg: struct { vx: u4, vy: u4 }, // 8XY4
     sub_reg: struct { vx: u4, vy: u4 }, // 8XY5
-    shr: struct { vx: u4 }, // 8XY6
+    shr: struct { vx: u4, vy: u4 }, // 8XY6
     subn_reg: struct { vx: u4, vy: u4 }, // 8XY7
-    shl: struct { vx: u4 }, // 8XYE
+    shl: struct { vx: u4, vy: u4 }, // 8XYE
     sne_reg: struct { vx: u4, vy: u4 }, // 9XY0
     ld_i: u16, // ANNN
     jmp_v0: u16, // BNNN
@@ -70,9 +72,9 @@ pub const Instruction = union(enum) {
                 0x3 => .{ .xor_reg = .{ .vx = x, .vy = y } },
                 0x4 => .{ .add_reg = .{ .vx = x, .vy = y } },
                 0x5 => .{ .sub_reg = .{ .vx = x, .vy = y } },
-                0x6 => .{ .shr = .{ .vx = x } },
+                0x6 => .{ .shr = .{ .vx = x, .vy = y } },
                 0x7 => .{ .subn_reg = .{ .vx = x, .vy = y } },
-                0xE => .{ .shl = .{ .vx = x } },
+                0xE => .{ .shl = .{ .vx = x, .vy = y } },
                 else => .{ .unknown = opcode },
             },
             0x9 => .{ .sne_reg = .{ .vx = x, .vy = y } },
@@ -114,9 +116,9 @@ pub const Instruction = union(enum) {
             .xor_reg => |s| fmtTo(buf, "XOR  V{X}, V{X}", .{ s.vx, s.vy }),
             .add_reg => |s| fmtTo(buf, "ADD  V{X}, V{X}", .{ s.vx, s.vy }),
             .sub_reg => |s| fmtTo(buf, "SUB  V{X}, V{X}", .{ s.vx, s.vy }),
-            .shr => |s| fmtTo(buf, "SHR  V{X}", .{s.vx}),
+            .shr => |s| fmtTo(buf, "SHR  V{X}, V{X}", .{ s.vx, s.vy }),
             .subn_reg => |s| fmtTo(buf, "SUBN V{X}, V{X}", .{ s.vx, s.vy }),
-            .shl => |s| fmtTo(buf, "SHL  V{X}", .{s.vx}),
+            .shl => |s| fmtTo(buf, "SHL  V{X}, V{X}", .{ s.vx, s.vy }),
             .sne_reg => |s| fmtTo(buf, "SNE  V{X}, V{X}", .{ s.vx, s.vy }),
             .ld_i => |addr| fmtTo(buf, "LD   I, {X:0>3}", .{addr}),
             .jmp_v0 => |addr| fmtTo(buf, "JP   V0, {X:0>3}", .{addr}),
@@ -171,6 +173,7 @@ pub const CPU = struct {
     prev_registers: [CHIP8_REGISTER_COUNT]u8,
     reg_change_age: [CHIP8_REGISTER_COUNT]u32,
     last_flow: DataFlow,
+    last_trace: trace_mod.TraceEntry,
 
     pub const FlowKind = enum {
         none,
@@ -197,6 +200,33 @@ pub const CPU = struct {
         opcode: u16 = 0,
     };
 
+    pub const SaveState = struct {
+        registers: [CHIP8_REGISTER_COUNT]u8,
+        index_register: u16,
+        program_counter: u16,
+        stack: [CHIP8_STACK_SIZE]u16,
+        stack_pointer: u16,
+        delay_timer: u8,
+        sound_timer: u8,
+        display: [DISPLAY_SIZE]u8,
+        keys: [16]u8,
+        draw_flag: u8,
+        waiting_for_key: u8,
+        key_register: u8,
+        rng_state: [4]u64,
+        mem_write_age: [CHIP8_MEMORY_SIZE]u32,
+        last_i_target: u16,
+        frame_count: u32,
+        prev_registers: [CHIP8_REGISTER_COUNT]u8,
+        reg_change_age: [CHIP8_REGISTER_COUNT]u32,
+        last_flow_kind: u8,
+        last_flow_src_addr: u16,
+        last_flow_src_len: u8,
+        last_flow_vx: u8,
+        last_flow_vy: u8,
+        last_flow_opcode: u16,
+    };
+
     pub fn init() CPU {
         return CPU{
             .registers = [_]u8{0} ** CHIP8_REGISTER_COUNT,
@@ -218,6 +248,7 @@ pub const CPU = struct {
             .prev_registers = [_]u8{0} ** CHIP8_REGISTER_COUNT,
             .reg_change_age = [_]u32{0} ** CHIP8_REGISTER_COUNT,
             .last_flow = .{},
+            .last_trace = trace_mod.TraceEntry.init(0, 0, .fetch),
         };
     }
 
@@ -240,20 +271,163 @@ pub const CPU = struct {
         }
     }
 
-    pub fn executeInstruction(self: *CPU, memory: *[CHIP8_MEMORY_SIZE]u8) !void {
+    pub fn snapshot(self: *const CPU) SaveState {
+        var display_state = [_]u8{0} ** DISPLAY_SIZE;
+        for (self.display, 0..) |pixel, idx| display_state[idx] = pixel;
+
+        var key_state = [_]u8{0} ** 16;
+        for (self.keys, 0..) |pressed, idx| key_state[idx] = if (pressed) 1 else 0;
+
+        return .{
+            .registers = self.registers,
+            .index_register = self.index_register,
+            .program_counter = self.program_counter,
+            .stack = self.stack,
+            .stack_pointer = self.stack_pointer,
+            .delay_timer = self.delay_timer,
+            .sound_timer = self.sound_timer,
+            .display = display_state,
+            .keys = key_state,
+            .draw_flag = if (self.draw_flag) 1 else 0,
+            .waiting_for_key = if (self.waiting_for_key) 1 else 0,
+            .key_register = self.key_register,
+            .rng_state = self.rng.s,
+            .mem_write_age = self.mem_write_age,
+            .last_i_target = self.last_i_target,
+            .frame_count = self.frame_count,
+            .prev_registers = self.prev_registers,
+            .reg_change_age = self.reg_change_age,
+            .last_flow_kind = @intFromEnum(self.last_flow.kind),
+            .last_flow_src_addr = self.last_flow.src_addr,
+            .last_flow_src_len = self.last_flow.src_len,
+            .last_flow_vx = self.last_flow.vx,
+            .last_flow_vy = self.last_flow.vy,
+            .last_flow_opcode = self.last_flow.opcode,
+        };
+    }
+
+    pub fn restore(self: *CPU, state: SaveState) void {
+        self.registers = state.registers;
+        self.index_register = state.index_register;
+        self.program_counter = state.program_counter;
+        self.stack = state.stack;
+        self.stack_pointer = state.stack_pointer;
+        self.delay_timer = state.delay_timer;
+        self.sound_timer = state.sound_timer;
+        for (state.display, 0..) |pixel, idx| self.display[idx] = @intCast(pixel);
+        for (state.keys, 0..) |pressed, idx| self.keys[idx] = pressed != 0;
+        self.draw_flag = state.draw_flag != 0;
+        self.waiting_for_key = state.waiting_for_key != 0;
+        self.key_register = @intCast(state.key_register);
+        self.rng = std.Random.Xoshiro256{ .s = state.rng_state };
+        self.mem_write_age = state.mem_write_age;
+        self.last_i_target = state.last_i_target;
+        self.frame_count = state.frame_count;
+        self.prev_registers = state.prev_registers;
+        self.reg_change_age = state.reg_change_age;
+        self.last_flow = .{
+            .kind = @enumFromInt(@min(state.last_flow_kind, @intFromEnum(FlowKind.timer))),
+            .src_addr = state.last_flow_src_addr,
+            .src_len = state.last_flow_src_len,
+            .vx = @intCast(state.last_flow_vx),
+            .vy = @intCast(state.last_flow_vy),
+            .opcode = state.last_flow_opcode,
+        };
+        self.last_trace = trace_mod.TraceEntry.init(self.program_counter, 0, .fetch);
+    }
+
+    pub fn writeSaveState(writer: *std.Io.Writer, state: *const SaveState) !void {
+        try writer.writeAll(&state.registers);
+        try writer.writeInt(u16, state.index_register, .little);
+        try writer.writeInt(u16, state.program_counter, .little);
+        for (state.stack) |entry| try writer.writeInt(u16, entry, .little);
+        try writer.writeInt(u16, state.stack_pointer, .little);
+        try writer.writeByte(state.delay_timer);
+        try writer.writeByte(state.sound_timer);
+        try writer.writeAll(&state.display);
+        try writer.writeAll(&state.keys);
+        try writer.writeByte(state.draw_flag);
+        try writer.writeByte(state.waiting_for_key);
+        try writer.writeByte(state.key_register);
+        for (state.rng_state) |entry| try writer.writeInt(u64, entry, .little);
+        for (state.mem_write_age) |age| try writer.writeInt(u32, age, .little);
+        try writer.writeInt(u16, state.last_i_target, .little);
+        try writer.writeInt(u32, state.frame_count, .little);
+        try writer.writeAll(&state.prev_registers);
+        for (state.reg_change_age) |age| try writer.writeInt(u32, age, .little);
+        try writer.writeByte(state.last_flow_kind);
+        try writer.writeInt(u16, state.last_flow_src_addr, .little);
+        try writer.writeByte(state.last_flow_src_len);
+        try writer.writeByte(state.last_flow_vx);
+        try writer.writeByte(state.last_flow_vy);
+        try writer.writeInt(u16, state.last_flow_opcode, .little);
+    }
+
+    pub fn readSaveState(reader: *std.Io.Reader) !SaveState {
+        var state: SaveState = undefined;
+        try reader.readSliceAll(&state.registers);
+        state.index_register = try reader.takeInt(u16, .little);
+        state.program_counter = try reader.takeInt(u16, .little);
+        for (&state.stack) |*entry| entry.* = try reader.takeInt(u16, .little);
+        state.stack_pointer = try reader.takeInt(u16, .little);
+        state.delay_timer = try reader.takeByte();
+        state.sound_timer = try reader.takeByte();
+        try reader.readSliceAll(&state.display);
+        try reader.readSliceAll(&state.keys);
+        state.draw_flag = try reader.takeByte();
+        state.waiting_for_key = try reader.takeByte();
+        state.key_register = try reader.takeByte();
+        for (&state.rng_state) |*entry| entry.* = try reader.takeInt(u64, .little);
+        for (&state.mem_write_age) |*age| age.* = try reader.takeInt(u32, .little);
+        state.last_i_target = try reader.takeInt(u16, .little);
+        state.frame_count = try reader.takeInt(u32, .little);
+        try reader.readSliceAll(&state.prev_registers);
+        for (&state.reg_change_age) |*age| age.* = try reader.takeInt(u32, .little);
+        state.last_flow_kind = try reader.takeByte();
+        state.last_flow_src_addr = try reader.takeInt(u16, .little);
+        state.last_flow_src_len = try reader.takeByte();
+        state.last_flow_vx = try reader.takeByte();
+        state.last_flow_vy = try reader.takeByte();
+        state.last_flow_opcode = try reader.takeInt(u16, .little);
+        return state;
+    }
+
+    pub fn executeInstruction(self: *CPU, memory: *[CHIP8_MEMORY_SIZE]u8, quirks: emulation.QuirkFlags) !void {
         const fetch_pc = self.program_counter;
         const opcode: u16 = @as(u16, memory[self.program_counter]) << 8 | @as(u16, memory[self.program_counter + 1]);
         self.program_counter += 2;
 
         const inst = Instruction.decode(opcode);
+        const fetch_memory = trace_mod.memoryEndpoint(fetch_pc, 2);
 
-        // Default flow: fetch
         self.last_flow = .{ .kind = .fetch, .src_addr = fetch_pc, .src_len = 2, .opcode = opcode };
+
+        var trace_entry = trace_mod.TraceEntry.init(fetch_pc, opcode, .fetch);
+        trace_entry.source = trace_mod.pcEndpoint(fetch_pc);
+        trace_entry.destination = fetch_memory;
+        trace_entry.addMicroOp(.{
+            .kind = .fetch_opcode,
+            .source = trace_mod.pcEndpoint(fetch_pc),
+            .destination = fetch_memory,
+        });
+        trace_entry.addMicroOp(.{
+            .kind = .decode_opcode,
+            .source = fetch_memory,
+            .destination = .decode,
+        });
 
         switch (inst) {
             .cls => {
                 @memset(&self.display, 0);
                 self.draw_flag = true;
+                trace_entry.tag = .draw;
+                trace_entry.source = .decode;
+                trace_entry.destination = trace_mod.displayEndpoint(0, 0, DISPLAY_WIDTH, DISPLAY_HEIGHT, false, true);
+                trace_entry.addMicroOp(.{
+                    .kind = .draw_sprite,
+                    .source = .decode,
+                    .destination = trace_entry.destination,
+                });
             },
             .ret => {
                 if (self.stack_pointer > 0) {
@@ -261,107 +435,319 @@ pub const CPU = struct {
                     self.program_counter = self.stack[self.stack_pointer];
                 }
                 self.last_flow = .{ .kind = .ret, .opcode = opcode };
+                trace_entry.tag = .ret;
+                trace_entry.source = trace_mod.stackEndpoint(self.stack_pointer, 1);
+                trace_entry.destination = trace_mod.pcEndpoint(self.program_counter);
+                trace_entry.addMicroOp(.{
+                    .kind = .pop_stack,
+                    .source = trace_entry.source,
+                    .destination = trace_entry.destination,
+                });
             },
-            .sys => {},
+            .sys => {
+                trace_entry.tag = .misc;
+            },
             .jmp => |addr| {
                 self.program_counter = addr;
                 self.last_flow = .{ .kind = .jump, .src_addr = addr, .opcode = opcode };
+                trace_entry.tag = .jump;
+                trace_entry.source = .decode;
+                trace_entry.destination = trace_mod.pcEndpoint(addr);
+                trace_entry.addMicroOp(.{
+                    .kind = .branch_pc,
+                    .source = .decode,
+                    .destination = trace_entry.destination,
+                });
             },
             .call => |addr| {
+                const return_pc = self.program_counter;
+                const stack_slot = self.stack_pointer;
                 if (self.stack_pointer < CHIP8_STACK_SIZE) {
-                    self.stack[self.stack_pointer] = self.program_counter;
+                    self.stack[self.stack_pointer] = return_pc;
                     self.stack_pointer += 1;
                     self.program_counter = addr;
                 } else {
                     return error.StackOverflow;
                 }
                 self.last_flow = .{ .kind = .call, .src_addr = addr, .opcode = opcode };
+                trace_entry.tag = .call;
+                trace_entry.source = trace_mod.pcEndpoint(return_pc);
+                trace_entry.destination = trace_mod.stackEndpoint(stack_slot, 1);
+                trace_entry.addMicroOp(.{
+                    .kind = .push_stack,
+                    .source = trace_entry.source,
+                    .destination = trace_entry.destination,
+                });
+                trace_entry.addMicroOp(.{
+                    .kind = .branch_pc,
+                    .source = .decode,
+                    .destination = trace_mod.pcEndpoint(addr),
+                });
             },
             .se_byte => |s| {
                 if (self.registers[s.vx] == s.byte) self.program_counter += 2;
                 self.last_flow = .{ .kind = .skip, .vx = s.vx, .opcode = opcode };
+                trace_entry.tag = .skip;
+                trace_entry.source = trace_mod.registersEndpoint(s.vx, 1);
+                trace_entry.destination = trace_mod.pcEndpoint(self.program_counter);
+                trace_entry.addMicroOp(.{
+                    .kind = .read_reg,
+                    .source = trace_entry.source,
+                    .destination = .decode,
+                });
+                trace_entry.addMicroOp(.{
+                    .kind = .branch_pc,
+                    .source = .decode,
+                    .destination = trace_entry.destination,
+                });
             },
             .sne_byte => |s| {
                 if (self.registers[s.vx] != s.byte) self.program_counter += 2;
                 self.last_flow = .{ .kind = .skip, .vx = s.vx, .opcode = opcode };
+                trace_entry.tag = .skip;
+                trace_entry.source = trace_mod.registersEndpoint(s.vx, 1);
+                trace_entry.destination = trace_mod.pcEndpoint(self.program_counter);
+                trace_entry.addMicroOp(.{
+                    .kind = .read_reg,
+                    .source = trace_entry.source,
+                    .destination = .decode,
+                });
+                trace_entry.addMicroOp(.{
+                    .kind = .branch_pc,
+                    .source = .decode,
+                    .destination = trace_entry.destination,
+                });
             },
             .se_reg => |s| {
                 if (self.registers[s.vx] == self.registers[s.vy]) self.program_counter += 2;
                 self.last_flow = .{ .kind = .skip, .vx = s.vx, .vy = s.vy, .opcode = opcode };
+                trace_entry.tag = .skip;
+                trace_entry.source = trace_mod.registersEndpoint(s.vx, 1);
+                trace_entry.destination = trace_mod.pcEndpoint(self.program_counter);
+                trace_entry.addMicroOp(.{
+                    .kind = .read_reg,
+                    .source = trace_mod.registersEndpoint(s.vx, 1),
+                    .destination = .decode,
+                });
+                trace_entry.addMicroOp(.{
+                    .kind = .read_reg,
+                    .source = trace_mod.registersEndpoint(s.vy, 1),
+                    .destination = .decode,
+                });
+                trace_entry.addMicroOp(.{
+                    .kind = .branch_pc,
+                    .source = .decode,
+                    .destination = trace_entry.destination,
+                });
             },
             .ld_byte => |s| {
                 self.registers[s.vx] = s.byte;
                 self.last_flow = .{ .kind = .reg_load, .vx = s.vx, .opcode = opcode };
+                trace_entry.tag = .load;
+                trace_entry.source = fetch_memory;
+                trace_entry.destination = trace_mod.registersEndpoint(s.vx, 1);
+                trace_entry.addMicroOp(.{
+                    .kind = .write_reg,
+                    .source = fetch_memory,
+                    .destination = trace_entry.destination,
+                });
             },
             .add_byte => |s| {
                 self.registers[s.vx] = self.registers[s.vx] +% s.byte;
                 self.last_flow = .{ .kind = .reg_load, .vx = s.vx, .opcode = opcode };
+                trace_entry.tag = .alu;
+                trace_entry.source = trace_mod.registersEndpoint(s.vx, 1);
+                trace_entry.destination = trace_mod.registersEndpoint(s.vx, 1);
+                trace_entry.addMicroOp(.{
+                    .kind = .read_reg,
+                    .source = trace_entry.source,
+                    .destination = .decode,
+                });
+                trace_entry.addMicroOp(.{
+                    .kind = .write_reg,
+                    .source = .decode,
+                    .destination = trace_entry.destination,
+                });
             },
             .ld_reg => |s| {
                 self.registers[s.vx] = self.registers[s.vy];
                 self.last_flow = .{ .kind = .reg_op, .vx = s.vx, .vy = s.vy, .opcode = opcode };
+                trace_entry.tag = .load;
+                trace_entry.source = trace_mod.registersEndpoint(s.vy, 1);
+                trace_entry.destination = trace_mod.registersEndpoint(s.vx, 1);
+                trace_entry.addMicroOp(.{
+                    .kind = .read_reg,
+                    .source = trace_entry.source,
+                    .destination = .decode,
+                });
+                trace_entry.addMicroOp(.{
+                    .kind = .write_reg,
+                    .source = .decode,
+                    .destination = trace_entry.destination,
+                });
             },
             .or_reg => |s| {
                 self.registers[s.vx] |= self.registers[s.vy];
-                self.registers[0xF] = 0;
+                if (quirks.logic_ops_clear_vf) self.registers[0xF] = 0;
                 self.last_flow = .{ .kind = .reg_op, .vx = s.vx, .vy = s.vy, .opcode = opcode };
+                trace_entry.tag = .alu;
+                trace_entry.source = trace_mod.registersEndpoint(s.vy, 1);
+                trace_entry.destination = trace_mod.registersEndpoint(s.vx, 1);
+                trace_entry.addMicroOp(.{ .kind = .read_reg, .source = trace_mod.registersEndpoint(s.vx, 1), .destination = .decode });
+                trace_entry.addMicroOp(.{ .kind = .read_reg, .source = trace_mod.registersEndpoint(s.vy, 1), .destination = .decode });
+                trace_entry.addMicroOp(.{ .kind = .write_reg, .source = .decode, .destination = trace_mod.registersEndpoint(s.vx, 1) });
+                if (quirks.logic_ops_clear_vf) {
+                    trace_entry.addMicroOp(.{ .kind = .write_reg, .source = .decode, .destination = trace_mod.registersEndpoint(0xF, 1) });
+                }
             },
             .and_reg => |s| {
                 self.registers[s.vx] &= self.registers[s.vy];
-                self.registers[0xF] = 0;
+                if (quirks.logic_ops_clear_vf) self.registers[0xF] = 0;
                 self.last_flow = .{ .kind = .reg_op, .vx = s.vx, .vy = s.vy, .opcode = opcode };
+                trace_entry.tag = .alu;
+                trace_entry.source = trace_mod.registersEndpoint(s.vy, 1);
+                trace_entry.destination = trace_mod.registersEndpoint(s.vx, 1);
+                trace_entry.addMicroOp(.{ .kind = .read_reg, .source = trace_mod.registersEndpoint(s.vx, 1), .destination = .decode });
+                trace_entry.addMicroOp(.{ .kind = .read_reg, .source = trace_mod.registersEndpoint(s.vy, 1), .destination = .decode });
+                trace_entry.addMicroOp(.{ .kind = .write_reg, .source = .decode, .destination = trace_mod.registersEndpoint(s.vx, 1) });
+                if (quirks.logic_ops_clear_vf) {
+                    trace_entry.addMicroOp(.{ .kind = .write_reg, .source = .decode, .destination = trace_mod.registersEndpoint(0xF, 1) });
+                }
             },
             .xor_reg => |s| {
                 self.registers[s.vx] ^= self.registers[s.vy];
-                self.registers[0xF] = 0;
+                if (quirks.logic_ops_clear_vf) self.registers[0xF] = 0;
                 self.last_flow = .{ .kind = .reg_op, .vx = s.vx, .vy = s.vy, .opcode = opcode };
+                trace_entry.tag = .alu;
+                trace_entry.source = trace_mod.registersEndpoint(s.vy, 1);
+                trace_entry.destination = trace_mod.registersEndpoint(s.vx, 1);
+                trace_entry.addMicroOp(.{ .kind = .read_reg, .source = trace_mod.registersEndpoint(s.vx, 1), .destination = .decode });
+                trace_entry.addMicroOp(.{ .kind = .read_reg, .source = trace_mod.registersEndpoint(s.vy, 1), .destination = .decode });
+                trace_entry.addMicroOp(.{ .kind = .write_reg, .source = .decode, .destination = trace_mod.registersEndpoint(s.vx, 1) });
+                if (quirks.logic_ops_clear_vf) {
+                    trace_entry.addMicroOp(.{ .kind = .write_reg, .source = .decode, .destination = trace_mod.registersEndpoint(0xF, 1) });
+                }
             },
             .add_reg => |s| {
                 const sum: u16 = @as(u16, self.registers[s.vx]) + @as(u16, self.registers[s.vy]);
                 self.registers[s.vx] = @truncate(sum);
                 self.registers[0xF] = if (sum > 255) @as(u8, 1) else @as(u8, 0);
                 self.last_flow = .{ .kind = .reg_op, .vx = s.vx, .vy = s.vy, .opcode = opcode };
+                trace_entry.tag = .alu;
+                trace_entry.source = trace_mod.registersEndpoint(s.vy, 1);
+                trace_entry.destination = trace_mod.registersEndpoint(s.vx, 1);
+                trace_entry.addMicroOp(.{ .kind = .read_reg, .source = trace_mod.registersEndpoint(s.vx, 1), .destination = .decode });
+                trace_entry.addMicroOp(.{ .kind = .read_reg, .source = trace_mod.registersEndpoint(s.vy, 1), .destination = .decode });
+                trace_entry.addMicroOp(.{ .kind = .write_reg, .source = .decode, .destination = trace_mod.registersEndpoint(s.vx, 1) });
+                trace_entry.addMicroOp(.{ .kind = .write_reg, .source = .decode, .destination = trace_mod.registersEndpoint(0xF, 1) });
             },
             .sub_reg => |s| {
                 const vf: u8 = if (self.registers[s.vx] >= self.registers[s.vy]) 1 else 0;
                 self.registers[s.vx] = self.registers[s.vx] -% self.registers[s.vy];
                 self.registers[0xF] = vf;
                 self.last_flow = .{ .kind = .reg_op, .vx = s.vx, .vy = s.vy, .opcode = opcode };
+                trace_entry.tag = .alu;
+                trace_entry.source = trace_mod.registersEndpoint(s.vy, 1);
+                trace_entry.destination = trace_mod.registersEndpoint(s.vx, 1);
+                trace_entry.addMicroOp(.{ .kind = .read_reg, .source = trace_mod.registersEndpoint(s.vx, 1), .destination = .decode });
+                trace_entry.addMicroOp(.{ .kind = .read_reg, .source = trace_mod.registersEndpoint(s.vy, 1), .destination = .decode });
+                trace_entry.addMicroOp(.{ .kind = .write_reg, .source = .decode, .destination = trace_mod.registersEndpoint(s.vx, 1) });
+                trace_entry.addMicroOp(.{ .kind = .write_reg, .source = .decode, .destination = trace_mod.registersEndpoint(0xF, 1) });
             },
             .shr => |s| {
-                const vf: u8 = self.registers[s.vx] & 1;
-                self.registers[s.vx] >>= 1;
+                const source_reg: u4 = if (quirks.shift_uses_vy) s.vy else s.vx;
+                const source = self.registers[source_reg];
+                const vf: u8 = source & 1;
+                self.registers[s.vx] = source >> 1;
                 self.registers[0xF] = vf;
-                self.last_flow = .{ .kind = .reg_op, .vx = s.vx, .opcode = opcode };
+                self.last_flow = .{ .kind = .reg_op, .vx = s.vx, .vy = s.vy, .opcode = opcode };
+                trace_entry.tag = .alu;
+                trace_entry.source = trace_mod.registersEndpoint(source_reg, 1);
+                trace_entry.destination = trace_mod.registersEndpoint(s.vx, 1);
+                trace_entry.addMicroOp(.{ .kind = .read_reg, .source = trace_entry.source, .destination = .decode });
+                trace_entry.addMicroOp(.{ .kind = .write_reg, .source = .decode, .destination = trace_mod.registersEndpoint(s.vx, 1) });
+                trace_entry.addMicroOp(.{ .kind = .write_reg, .source = .decode, .destination = trace_mod.registersEndpoint(0xF, 1) });
             },
             .subn_reg => |s| {
                 const vf: u8 = if (self.registers[s.vy] >= self.registers[s.vx]) 1 else 0;
                 self.registers[s.vx] = self.registers[s.vy] -% self.registers[s.vx];
                 self.registers[0xF] = vf;
                 self.last_flow = .{ .kind = .reg_op, .vx = s.vx, .vy = s.vy, .opcode = opcode };
+                trace_entry.tag = .alu;
+                trace_entry.source = trace_mod.registersEndpoint(s.vy, 1);
+                trace_entry.destination = trace_mod.registersEndpoint(s.vx, 1);
+                trace_entry.addMicroOp(.{ .kind = .read_reg, .source = trace_mod.registersEndpoint(s.vx, 1), .destination = .decode });
+                trace_entry.addMicroOp(.{ .kind = .read_reg, .source = trace_mod.registersEndpoint(s.vy, 1), .destination = .decode });
+                trace_entry.addMicroOp(.{ .kind = .write_reg, .source = .decode, .destination = trace_mod.registersEndpoint(s.vx, 1) });
+                trace_entry.addMicroOp(.{ .kind = .write_reg, .source = .decode, .destination = trace_mod.registersEndpoint(0xF, 1) });
             },
             .shl => |s| {
-                const vf: u8 = (self.registers[s.vx] >> 7) & 1;
-                self.registers[s.vx] <<= 1;
+                const source_reg: u4 = if (quirks.shift_uses_vy) s.vy else s.vx;
+                const source = self.registers[source_reg];
+                const vf: u8 = (source >> 7) & 1;
+                self.registers[s.vx] = source << 1;
                 self.registers[0xF] = vf;
-                self.last_flow = .{ .kind = .reg_op, .vx = s.vx, .opcode = opcode };
+                self.last_flow = .{ .kind = .reg_op, .vx = s.vx, .vy = s.vy, .opcode = opcode };
+                trace_entry.tag = .alu;
+                trace_entry.source = trace_mod.registersEndpoint(source_reg, 1);
+                trace_entry.destination = trace_mod.registersEndpoint(s.vx, 1);
+                trace_entry.addMicroOp(.{ .kind = .read_reg, .source = trace_entry.source, .destination = .decode });
+                trace_entry.addMicroOp(.{ .kind = .write_reg, .source = .decode, .destination = trace_mod.registersEndpoint(s.vx, 1) });
+                trace_entry.addMicroOp(.{ .kind = .write_reg, .source = .decode, .destination = trace_mod.registersEndpoint(0xF, 1) });
             },
             .sne_reg => |s| {
                 if (self.registers[s.vx] != self.registers[s.vy]) self.program_counter += 2;
                 self.last_flow = .{ .kind = .skip, .vx = s.vx, .vy = s.vy, .opcode = opcode };
+                trace_entry.tag = .skip;
+                trace_entry.source = trace_mod.registersEndpoint(s.vx, 1);
+                trace_entry.destination = trace_mod.pcEndpoint(self.program_counter);
+                trace_entry.addMicroOp(.{ .kind = .read_reg, .source = trace_mod.registersEndpoint(s.vx, 1), .destination = .decode });
+                trace_entry.addMicroOp(.{ .kind = .read_reg, .source = trace_mod.registersEndpoint(s.vy, 1), .destination = .decode });
+                trace_entry.addMicroOp(.{ .kind = .branch_pc, .source = .decode, .destination = trace_entry.destination });
             },
             .ld_i => |addr| {
                 self.index_register = addr;
                 self.last_flow = .{ .kind = .reg_load, .src_addr = addr, .opcode = opcode };
+                trace_entry.tag = .load;
+                trace_entry.source = fetch_memory;
+                trace_entry.destination = trace_mod.indexEndpoint(addr);
+                trace_entry.addMicroOp(.{
+                    .kind = .write_reg,
+                    .source = fetch_memory,
+                    .destination = trace_entry.destination,
+                });
             },
             .jmp_v0 => |addr| {
-                self.program_counter = @as(u16, self.registers[0]) + addr;
+                const source_reg: u4 = if (quirks.jump_uses_vx) @truncate((addr >> 8) & 0xF) else 0;
+                const base_reg: u8 = self.registers[source_reg];
+                self.program_counter = @as(u16, base_reg) + addr;
                 self.last_flow = .{ .kind = .jump, .src_addr = self.program_counter, .opcode = opcode };
+                trace_entry.tag = .jump;
+                trace_entry.source = trace_mod.registersEndpoint(source_reg, 1);
+                trace_entry.destination = trace_mod.pcEndpoint(self.program_counter);
+                trace_entry.addMicroOp(.{
+                    .kind = .read_reg,
+                    .source = trace_entry.source,
+                    .destination = .decode,
+                });
+                trace_entry.addMicroOp(.{
+                    .kind = .branch_pc,
+                    .source = .decode,
+                    .destination = trace_entry.destination,
+                });
             },
             .rnd => |s| {
                 const random_byte: u8 = self.rng.random().int(u8);
                 self.registers[s.vx] = random_byte & s.byte;
                 self.last_flow = .{ .kind = .reg_load, .vx = s.vx, .opcode = opcode };
+                trace_entry.tag = .load;
+                trace_entry.source = fetch_memory;
+                trace_entry.destination = trace_mod.registersEndpoint(s.vx, 1);
+                trace_entry.addMicroOp(.{
+                    .kind = .write_reg,
+                    .source = fetch_memory,
+                    .destination = trace_entry.destination,
+                });
             },
             .drw => |s| {
                 const vx: u8 = self.registers[s.vx];
@@ -374,8 +760,12 @@ pub const CPU = struct {
                     for (0..8) |col| {
                         const pixel: u1 = @truncate(sprite_byte >> @as(u3, @intCast(7 - col)));
                         if (pixel == 1) {
-                            const px: usize = (@as(usize, vx) + col) % DISPLAY_WIDTH;
-                            const py: usize = (@as(usize, vy) + row) % DISPLAY_HEIGHT;
+                            const raw_x = @as(usize, vx) + col;
+                            const raw_y = @as(usize, vy) + row;
+                            if (!quirks.draw_wrap and (raw_x >= DISPLAY_WIDTH or raw_y >= DISPLAY_HEIGHT)) continue;
+
+                            const px: usize = if (quirks.draw_wrap) raw_x % DISPLAY_WIDTH else raw_x;
+                            const py: usize = if (quirks.draw_wrap) raw_y % DISPLAY_HEIGHT else raw_y;
                             const idx = py * DISPLAY_WIDTH + px;
                             if (self.display[idx] == 1) {
                                 self.registers[0xF] = 1;
@@ -386,39 +776,130 @@ pub const CPU = struct {
                 }
                 self.draw_flag = true;
                 self.last_flow = .{ .kind = .sprite_read, .src_addr = self.index_register, .src_len = s.n, .vx = s.vx, .vy = s.vy, .opcode = opcode };
+                trace_entry.tag = .draw;
+                trace_entry.source = trace_mod.memoryEndpoint(self.index_register, s.n);
+                trace_entry.destination = trace_mod.displayEndpoint(vx, vy, 8, s.n, quirks.draw_wrap, false);
+                trace_entry.addMicroOp(.{ .kind = .read_reg, .source = trace_mod.registersEndpoint(s.vx, 1), .destination = .decode });
+                trace_entry.addMicroOp(.{ .kind = .read_reg, .source = trace_mod.registersEndpoint(s.vy, 1), .destination = .decode });
+                trace_entry.addMicroOp(.{
+                    .kind = .read_mem_range,
+                    .source = trace_entry.source,
+                    .destination = trace_entry.destination,
+                });
+                trace_entry.addMicroOp(.{
+                    .kind = .draw_sprite,
+                    .source = trace_entry.source,
+                    .destination = trace_entry.destination,
+                });
+                trace_entry.addMicroOp(.{
+                    .kind = .write_reg,
+                    .source = .decode,
+                    .destination = trace_mod.registersEndpoint(0xF, 1),
+                });
             },
             .skp => |vx| {
-                if (self.keys[self.registers[vx] & 0xF]) self.program_counter += 2;
+                const key = @as(u4, @truncate(self.registers[vx] & 0xF));
+                if (self.keys[key]) self.program_counter += 2;
                 self.last_flow = .{ .kind = .skip, .vx = vx, .opcode = opcode };
+                trace_entry.tag = .skip;
+                trace_entry.source = trace_mod.keypadEndpoint(key, null, false);
+                trace_entry.destination = trace_mod.pcEndpoint(self.program_counter);
+                trace_entry.addMicroOp(.{
+                    .kind = .read_keypad,
+                    .source = trace_entry.source,
+                    .destination = .decode,
+                });
+                trace_entry.addMicroOp(.{
+                    .kind = .branch_pc,
+                    .source = .decode,
+                    .destination = trace_entry.destination,
+                });
             },
             .sknp => |vx| {
-                if (!self.keys[self.registers[vx] & 0xF]) self.program_counter += 2;
+                const key = @as(u4, @truncate(self.registers[vx] & 0xF));
+                if (!self.keys[key]) self.program_counter += 2;
                 self.last_flow = .{ .kind = .skip, .vx = vx, .opcode = opcode };
+                trace_entry.tag = .skip;
+                trace_entry.source = trace_mod.keypadEndpoint(key, null, false);
+                trace_entry.destination = trace_mod.pcEndpoint(self.program_counter);
+                trace_entry.addMicroOp(.{
+                    .kind = .read_keypad,
+                    .source = trace_entry.source,
+                    .destination = .decode,
+                });
+                trace_entry.addMicroOp(.{
+                    .kind = .branch_pc,
+                    .source = .decode,
+                    .destination = trace_entry.destination,
+                });
             },
             .ld_vx_dt => |vx| {
                 self.registers[vx] = self.delay_timer;
                 self.last_flow = .{ .kind = .timer, .vx = vx, .opcode = opcode };
+                trace_entry.tag = .timer;
+                trace_entry.source = trace_mod.timersEndpoint(true, false);
+                trace_entry.destination = trace_mod.registersEndpoint(vx, 1);
+                trace_entry.addMicroOp(.{
+                    .kind = .read_timer,
+                    .source = trace_entry.source,
+                    .destination = trace_entry.destination,
+                });
             },
             .ld_vx_k => |vx| {
                 self.waiting_for_key = true;
                 self.key_register = vx;
                 self.program_counter -= 2;
                 self.last_flow = .{ .kind = .key_wait, .vx = vx, .opcode = opcode };
+                trace_entry.tag = .key;
+                trace_entry.source = trace_mod.keypadEndpoint(null, vx, true);
+                trace_entry.destination = trace_mod.registersEndpoint(vx, 1);
+                trace_entry.waits_for_key = true;
+                trace_entry.addMicroOp(.{
+                    .kind = .wait_key,
+                    .source = trace_entry.source,
+                    .destination = trace_entry.destination,
+                });
             },
             .ld_dt_vx => |vx| {
                 self.delay_timer = self.registers[vx];
                 self.last_flow = .{ .kind = .timer, .vx = vx, .opcode = opcode };
+                trace_entry.tag = .timer;
+                trace_entry.source = trace_mod.registersEndpoint(vx, 1);
+                trace_entry.destination = trace_mod.timersEndpoint(true, false);
+                trace_entry.addMicroOp(.{
+                    .kind = .write_timer,
+                    .source = trace_entry.source,
+                    .destination = trace_entry.destination,
+                });
             },
             .ld_st_vx => |vx| {
                 self.sound_timer = self.registers[vx];
                 self.last_flow = .{ .kind = .timer, .vx = vx, .opcode = opcode };
+                trace_entry.tag = .timer;
+                trace_entry.source = trace_mod.registersEndpoint(vx, 1);
+                trace_entry.destination = trace_mod.timersEndpoint(false, true);
+                trace_entry.addMicroOp(.{
+                    .kind = .write_timer,
+                    .source = trace_entry.source,
+                    .destination = trace_entry.destination,
+                });
             },
             .add_i_vx => |vx| {
                 self.index_register +%= self.registers[vx];
+                trace_entry.tag = .alu;
+                trace_entry.source = trace_mod.registersEndpoint(vx, 1);
+                trace_entry.destination = trace_mod.indexEndpoint(self.index_register);
+                trace_entry.addMicroOp(.{ .kind = .read_reg, .source = trace_entry.source, .destination = .decode });
+                trace_entry.addMicroOp(.{ .kind = .write_reg, .source = .decode, .destination = trace_entry.destination });
             },
             .ld_f_vx => |vx| {
                 self.index_register = @as(u16, self.registers[vx] & 0xF) * 5;
                 self.last_i_target = self.index_register;
+                trace_entry.tag = .load;
+                trace_entry.source = trace_mod.registersEndpoint(vx, 1);
+                trace_entry.destination = trace_mod.indexEndpoint(self.index_register);
+                trace_entry.addMicroOp(.{ .kind = .read_reg, .source = trace_entry.source, .destination = .decode });
+                trace_entry.addMicroOp(.{ .kind = .write_reg, .source = .decode, .destination = trace_entry.destination });
             },
             .ld_b_vx => |vx| {
                 const val = self.registers[vx];
@@ -431,23 +912,52 @@ pub const CPU = struct {
                 self.stampWrite(addr + 1);
                 self.stampWrite(addr + 2);
                 self.last_flow = .{ .kind = .i_write, .src_addr = addr, .src_len = 3, .vx = vx, .opcode = opcode };
+                trace_entry.tag = .store;
+                trace_entry.source = trace_mod.registersEndpoint(vx, 1);
+                trace_entry.destination = trace_mod.memoryEndpoint(addr, 3);
+                trace_entry.addMicroOp(.{ .kind = .read_reg, .source = trace_entry.source, .destination = .decode });
+                trace_entry.addMicroOp(.{ .kind = .write_mem_range, .source = trace_entry.source, .destination = trace_entry.destination });
             },
             .ld_i_vx => |vx| {
-                self.last_i_target = self.index_register;
+                const start_addr = self.index_register;
+                self.last_i_target = start_addr;
                 for (0..@as(usize, vx) + 1) |i| {
-                    memory[self.index_register + i] = self.registers[i];
-                    self.stampWrite(self.index_register + i);
+                    memory[start_addr + i] = self.registers[i];
+                    self.stampWrite(start_addr + i);
                 }
-                self.last_flow = .{ .kind = .i_write, .src_addr = self.index_register, .src_len = @as(u8, vx) + 1, .vx = vx, .opcode = opcode };
+                if (quirks.load_store_increment_i) self.index_register +%= @as(u16, vx) + 1;
+                self.last_flow = .{ .kind = .i_write, .src_addr = start_addr, .src_len = @as(u8, vx) + 1, .vx = vx, .opcode = opcode };
+                trace_entry.tag = .store;
+                trace_entry.source = trace_mod.registersEndpoint(0, @as(usize, vx) + 1);
+                trace_entry.destination = trace_mod.memoryEndpoint(start_addr, @as(usize, vx) + 1);
+                trace_entry.addMicroOp(.{ .kind = .read_reg, .source = trace_entry.source, .destination = .decode });
+                trace_entry.addMicroOp(.{ .kind = .write_mem_range, .source = trace_entry.source, .destination = trace_entry.destination });
+                if (quirks.load_store_increment_i) {
+                    trace_entry.addMicroOp(.{ .kind = .write_reg, .source = .decode, .destination = trace_mod.indexEndpoint(self.index_register) });
+                }
             },
             .ld_vx_i => |vx| {
-                self.last_i_target = self.index_register;
+                const start_addr = self.index_register;
+                self.last_i_target = start_addr;
                 for (0..@as(usize, vx) + 1) |i| {
-                    self.registers[i] = memory[self.index_register + i];
+                    self.registers[i] = memory[start_addr + i];
                 }
-                self.last_flow = .{ .kind = .i_read, .src_addr = self.index_register, .src_len = @as(u8, vx) + 1, .vx = vx, .opcode = opcode };
+                if (quirks.load_store_increment_i) self.index_register +%= @as(u16, vx) + 1;
+                self.last_flow = .{ .kind = .i_read, .src_addr = start_addr, .src_len = @as(u8, vx) + 1, .vx = vx, .opcode = opcode };
+                trace_entry.tag = .load;
+                trace_entry.source = trace_mod.memoryEndpoint(start_addr, @as(usize, vx) + 1);
+                trace_entry.destination = trace_mod.registersEndpoint(0, @as(usize, vx) + 1);
+                trace_entry.addMicroOp(.{ .kind = .read_mem_range, .source = trace_entry.source, .destination = trace_entry.destination });
+                trace_entry.addMicroOp(.{ .kind = .write_reg, .source = trace_entry.source, .destination = trace_entry.destination });
+                if (quirks.load_store_increment_i) {
+                    trace_entry.addMicroOp(.{ .kind = .write_reg, .source = .decode, .destination = trace_mod.indexEndpoint(self.index_register) });
+                }
             },
-            .unknown => {},
+            .unknown => {
+                trace_entry.tag = .misc;
+            },
         }
+
+        self.last_trace = trace_entry;
     }
 };

@@ -27,9 +27,24 @@ const physical_key_map = [_]rl.KeyboardKey{
 };
 
 pub fn pollKeys() [16]bool {
+    return pollChip8Keys(rl.isKeyDown);
+}
+
+pub fn pollJustPressedKeys() [16]bool {
+    return pollChip8Keys(rl.isKeyPressed);
+}
+
+pub fn firstPressedKey(keys: [16]bool) ?u4 {
+    for (keys, 0..) |pressed, idx| {
+        if (pressed) return @intCast(idx);
+    }
+    return null;
+}
+
+fn pollChip8Keys(comptime predicate: fn (rl.KeyboardKey) bool) [16]bool {
     var pressed = [_]bool{false} ** physical_key_map.len;
     for (physical_key_map, 0..) |mapped_key, i| {
-        pressed[i] = rl.isKeyDown(mapped_key);
+        pressed[i] = predicate(mapped_key);
     }
     return control.foldPressedChip8Keys(&pressed);
 }

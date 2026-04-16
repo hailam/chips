@@ -1,7 +1,13 @@
 const std = @import("std");
+const chip8_mod = @import("chip8.zig");
 const control = @import("control_spec.zig");
 const cpu = @import("cpu.zig");
+const debugger = @import("debugger.zig");
 const display_layout = @import("display_layout.zig");
+const emulation = @import("emulation_config.zig");
+const persistence = @import("persistence.zig");
+const timing = @import("timing.zig");
+const trace = @import("trace.zig");
 
 test "CPU initialization" {
     const c = cpu.CPU.init();
@@ -34,7 +40,7 @@ test "Clear screen" {
     c.display[0] = 1;
     c.display[100] = 1;
 
-    try c.executeInstruction(&memory);
+    try execModern(&c, &memory);
 
     try std.testing.expectEqual(@as(u16, 2), c.program_counter);
     try std.testing.expectEqual(@as(u1, 0), c.display[0]);
@@ -50,7 +56,7 @@ test "Jump to address" {
     memory[0] = 0x12;
     memory[1] = 0x34;
 
-    try c.executeInstruction(&memory);
+    try execModern(&c, &memory);
 
     try std.testing.expectEqual(@as(u16, 0x234), c.program_counter);
 }
@@ -63,7 +69,7 @@ test "Set VX = KK" {
     memory[0] = 0x61;
     memory[1] = 0xAB;
 
-    try c.executeInstruction(&memory);
+    try execModern(&c, &memory);
 
     try std.testing.expectEqual(@as(u8, 0xAB), c.registers[1]);
     try std.testing.expectEqual(@as(u16, 2), c.program_counter);
@@ -78,7 +84,7 @@ test "Add VX, KK" {
     memory[0] = 0x72;
     memory[1] = 0xCD;
 
-    try c.executeInstruction(&memory);
+    try execModern(&c, &memory);
 
     try std.testing.expectEqual(@as(u8, 0xDD), c.registers[2]);
     try std.testing.expectEqual(@as(u16, 2), c.program_counter);
@@ -93,7 +99,7 @@ test "Add VX, KK wraps on overflow" {
     memory[0] = 0x70; // ADD V0, 0x02
     memory[1] = 0x02;
 
-    try c.executeInstruction(&memory);
+    try execModern(&c, &memory);
 
     try std.testing.expectEqual(@as(u8, 0x01), c.registers[0]);
 }
@@ -108,7 +114,7 @@ test "ADD VX, VY with carry" {
     memory[0] = 0x80; // ADD V0, V1
     memory[1] = 0x14;
 
-    try c.executeInstruction(&memory);
+    try execModern(&c, &memory);
 
     try std.testing.expectEqual(@as(u8, 0x01), c.registers[0]);
     try std.testing.expectEqual(@as(u8, 1), c.registers[0xF]); // carry
@@ -124,7 +130,7 @@ test "SUB VX, VY with borrow" {
     memory[0] = 0x80; // SUB V0, V1
     memory[1] = 0x15;
 
-    try c.executeInstruction(&memory);
+    try execModern(&c, &memory);
 
     try std.testing.expectEqual(@as(u8, 0xFF), c.registers[0]);
     try std.testing.expectEqual(@as(u8, 0), c.registers[0xF]); // borrow
@@ -140,7 +146,7 @@ test "SUB VX, VY no borrow" {
     memory[0] = 0x80;
     memory[1] = 0x15;
 
-    try c.executeInstruction(&memory);
+    try execModern(&c, &memory);
 
     try std.testing.expectEqual(@as(u8, 0x03), c.registers[0]);
     try std.testing.expectEqual(@as(u8, 1), c.registers[0xF]); // no borrow
@@ -156,7 +162,7 @@ test "BCD store" {
     memory[0] = 0xF0; // LD B, V0
     memory[1] = 0x33;
 
-    try c.executeInstruction(&memory);
+    try execModern(&c, &memory);
 
     try std.testing.expectEqual(@as(u8, 1), memory[0x300]);
     try std.testing.expectEqual(@as(u8, 2), memory[0x301]);
@@ -176,7 +182,7 @@ test "Store and load registers" {
     memory[0] = 0xF2;
     memory[1] = 0x55;
 
-    try c.executeInstruction(&memory);
+    try execModern(&c, &memory);
 
     try std.testing.expectEqual(@as(u8, 0xAA), memory[0x300]);
     try std.testing.expectEqual(@as(u8, 0xBB), memory[0x301]);
@@ -192,7 +198,7 @@ test "Store and load registers" {
     memory[0] = 0xF2;
     memory[1] = 0x65;
 
-    try c.executeInstruction(&memory);
+    try execModern(&c, &memory);
 
     try std.testing.expectEqual(@as(u8, 0xAA), c.registers[0]);
     try std.testing.expectEqual(@as(u8, 0xBB), c.registers[1]);
@@ -213,7 +219,7 @@ test "Draw sprite" {
     memory[0] = 0xD0; // DRW V0, V1, 1
     memory[1] = 0x11;
 
-    try c.executeInstruction(&memory);
+    try execModern(&c, &memory);
 
     // First 4 pixels should be on
     try std.testing.expectEqual(@as(u1, 1), c.display[0]);
@@ -243,7 +249,7 @@ test "Draw sprite collision" {
     memory[0] = 0xD0;
     memory[1] = 0x11;
 
-    try c.executeInstruction(&memory);
+    try execModern(&c, &memory);
 
     // Pixel 0 should be XORed off
     try std.testing.expectEqual(@as(u1, 0), c.display[0]);
@@ -260,7 +266,7 @@ test "Call and return subroutine" {
     memory[0x200] = 0x24;
     memory[0x201] = 0x00;
 
-    try c.executeInstruction(&memory);
+    try execModern(&c, &memory);
 
     try std.testing.expectEqual(@as(u16, 0x400), c.program_counter);
     try std.testing.expectEqual(@as(u16, 1), c.stack_pointer);
@@ -270,7 +276,7 @@ test "Call and return subroutine" {
     memory[0x400] = 0x00;
     memory[0x401] = 0xEE;
 
-    try c.executeInstruction(&memory);
+    try execModern(&c, &memory);
 
     try std.testing.expectEqual(@as(u16, 0x202), c.program_counter);
     try std.testing.expectEqual(@as(u16, 0), c.stack_pointer);
@@ -286,7 +292,7 @@ test "Skip if equal" {
     memory[0] = 0x30;
     memory[1] = 0x42;
 
-    try c.executeInstruction(&memory);
+    try execModern(&c, &memory);
     try std.testing.expectEqual(@as(u16, 4), c.program_counter);
 
     // SE V0, 0x99 - should not skip
@@ -294,7 +300,7 @@ test "Skip if equal" {
     memory[0] = 0x30;
     memory[1] = 0x99;
 
-    try c.executeInstruction(&memory);
+    try execModern(&c, &memory);
     try std.testing.expectEqual(@as(u16, 2), c.program_counter);
 }
 
@@ -307,7 +313,7 @@ test "Font sprite location" {
     memory[0] = 0xF0; // LD F, V0
     memory[1] = 0x29;
 
-    try c.executeInstruction(&memory);
+    try execModern(&c, &memory);
 
     try std.testing.expectEqual(@as(u16, 0x0A * 5), c.index_register);
 }
@@ -319,6 +325,22 @@ test "Display layout stays inside the window and keeps panel gaps" {
         display_layout.DEFAULT_WINDOW_WIDTH + 320,
         display_layout.DEFAULT_WINDOW_HEIGHT + 240,
     ));
+}
+
+test "Display layout keeps register and middle-panel content inside panel bodies" {
+    const sizes = [_]display_layout.LayoutMetrics{
+        display_layout.computeLayout(display_layout.MIN_WINDOW_WIDTH, display_layout.MIN_WINDOW_HEIGHT),
+        display_layout.computeLayout(display_layout.DEFAULT_WINDOW_WIDTH, display_layout.DEFAULT_WINDOW_HEIGHT),
+        display_layout.computeLayout(display_layout.DEFAULT_WINDOW_WIDTH + 320, display_layout.DEFAULT_WINDOW_HEIGHT + 240),
+    };
+
+    for (sizes) |ui| {
+        try std.testing.expect(ui.registers.h >= display_layout.REG_CONTENT_MIN_H);
+        try std.testing.expect(ui.gutter.h >= display_layout.GUTTER_CONTENT_MIN_H);
+
+        const watch_rows_visible = @divTrunc(ui.gutter.body().h - 6, display_layout.LINE_H_SMALL);
+        try std.testing.expect(watch_rows_visible >= 10);
+    }
 }
 
 test "Display layout scroll clamps are derived from visible rows" {
@@ -406,21 +428,359 @@ test "Control spec fold pressed keys merges canonical and alias inputs" {
     try std.testing.expectEqual(@as(usize, 1), countPressedKeys(keys));
 }
 
-test "Control spec speed action keeps existing step and clamp behavior" {
-    try std.testing.expectEqual(@as(i32, 8), control.applySpeedAction(10, .slower));
-    try std.testing.expectEqual(@as(i32, 12), control.applySpeedAction(10, .faster));
-    try std.testing.expectEqual(@as(i32, 1), control.applySpeedAction(1, .slower));
-    try std.testing.expectEqual(@as(i32, 50), control.applySpeedAction(50, .faster));
+test "Timing speed action uses hz step and clamps to runtime bounds" {
+    try std.testing.expectEqual(@as(i32, 480), timing.applySpeedAction(600, .slower));
+    try std.testing.expectEqual(@as(i32, 720), timing.applySpeedAction(600, .faster));
+    try std.testing.expectEqual(@as(i32, timing.CPU_HZ_MIN), timing.applySpeedAction(timing.CPU_HZ_MIN, .slower));
+    try std.testing.expectEqual(@as(i32, timing.CPU_HZ_MAX), timing.applySpeedAction(timing.CPU_HZ_MAX, .faster));
 }
 
 test "Control spec footer copy is shared and layout uses it" {
-    try std.testing.expectEqualStrings("SPACE Run/Pause  N Step  BKSP Reset  M Mute  [ ] Speed", control.controls_label);
-    try std.testing.expectEqualStrings("W/A/S/D or arrows play  Wheel over Memory or Disassembler to scroll", control.controls_hint);
+    try std.testing.expectEqualStrings("SPACE Run/Pause  N/Shift+N Step/Over  B Break  O Recent  F5/F9 Save/Load  [ ] Speed  M Mute  P Profile  G FX  F11 Full", control.controls_label);
+    try std.testing.expectEqualStrings("W/A/S/D or arrows play  Tab switches trace/cycle/watches  ; edits watch  Wheel over Memory, Disassembler, or Trace to scroll", control.controls_hint);
 
     const narrow_layout = display_layout.computeLayout(display_layout.MIN_WINDOW_WIDTH, display_layout.MIN_WINDOW_HEIGHT);
-    const wide_layout = display_layout.computeLayout(display_layout.DEFAULT_WINDOW_WIDTH + 320, display_layout.DEFAULT_WINDOW_HEIGHT);
+    const wide_layout = display_layout.computeLayout(display_layout.DEFAULT_WINDOW_WIDTH + 960, display_layout.DEFAULT_WINDOW_HEIGHT);
     try std.testing.expect(narrow_layout.footer_two_rows);
     try std.testing.expect(!wide_layout.footer_two_rows);
+}
+
+test "Timing accumulator decouples cpu cycles from timer ticks" {
+    var state = timing.TimingState.init();
+    const a = timing.advance(&state, 1.0 / 120.0);
+    try std.testing.expectEqual(@as(usize, 5), a.cpu_cycles);
+    try std.testing.expectEqual(@as(usize, 0), a.timer_ticks);
+
+    const b = timing.advance(&state, 1.0 / 120.0);
+    try std.testing.expectEqual(@as(usize, 5), b.cpu_cycles);
+    try std.testing.expectEqual(@as(usize, 1), b.timer_ticks);
+}
+
+test "Timing accumulator caps large frame gaps" {
+    var state = timing.TimingState.init();
+    const result = timing.advance(&state, 1.0);
+    try std.testing.expectEqual(@as(f64, timing.DEFAULT_FRAME_DT_CAP_S), result.frame_dt_s);
+    try std.testing.expectEqual(@as(usize, 150), result.cpu_cycles);
+    try std.testing.expectEqual(@as(usize, 15), result.timer_ticks);
+}
+
+test "Emulation profiles expose expected quirk flags" {
+    const modern = emulation.profileQuirks(.modern);
+    try std.testing.expect(!modern.shift_uses_vy);
+    try std.testing.expect(!modern.load_store_increment_i);
+    try std.testing.expect(modern.logic_ops_clear_vf);
+    try std.testing.expect(modern.draw_wrap);
+    try std.testing.expect(!modern.jump_uses_vx);
+
+    const vip = emulation.profileQuirks(.vip_legacy);
+    try std.testing.expect(vip.shift_uses_vy);
+    try std.testing.expect(vip.load_store_increment_i);
+    try std.testing.expect(!vip.logic_ops_clear_vf);
+    try std.testing.expect(!vip.draw_wrap);
+    try std.testing.expect(!vip.jump_uses_vx);
+}
+
+test "Legacy shift quirk uses VY as the source register" {
+    var c = cpu.CPU.init();
+    c.registers[1] = 0xFF;
+    c.registers[2] = 0x08;
+    var memory = [_]u8{0} ** 4096;
+
+    c.program_counter = 0;
+    memory[0] = 0x81;
+    memory[1] = 0x26;
+    try c.executeInstruction(&memory, emulation.profileQuirks(.vip_legacy));
+
+    try std.testing.expectEqual(@as(u8, 0x04), c.registers[1]);
+    try std.testing.expectEqual(@as(u8, 0), c.registers[0xF]);
+}
+
+test "Legacy load store quirk increments I after FX55 and FX65" {
+    var c = cpu.CPU.init();
+    c.index_register = 0x300;
+    c.registers[0] = 0xAA;
+    c.registers[1] = 0xBB;
+    var memory = [_]u8{0} ** 4096;
+
+    c.program_counter = 0;
+    memory[0] = 0xF1;
+    memory[1] = 0x55;
+    try c.executeInstruction(&memory, emulation.profileQuirks(.vip_legacy));
+    try std.testing.expectEqual(@as(u16, 0x302), c.index_register);
+
+    c.program_counter = 0;
+    c.index_register = 0x300;
+    c.registers[0] = 0;
+    c.registers[1] = 0;
+    memory[0] = 0xF1;
+    memory[1] = 0x65;
+    try c.executeInstruction(&memory, emulation.profileQuirks(.vip_legacy));
+    try std.testing.expectEqual(@as(u16, 0x302), c.index_register);
+}
+
+test "Legacy logic ops preserve VF instead of clearing it" {
+    var c = cpu.CPU.init();
+    c.registers[0] = 0xF0;
+    c.registers[1] = 0x0F;
+    c.registers[0xF] = 0xAB;
+    var memory = [_]u8{0} ** 4096;
+
+    c.program_counter = 0;
+    memory[0] = 0x80;
+    memory[1] = 0x11;
+    try c.executeInstruction(&memory, emulation.profileQuirks(.vip_legacy));
+
+    try std.testing.expectEqual(@as(u8, 0xFF), c.registers[0]);
+    try std.testing.expectEqual(@as(u8, 0xAB), c.registers[0xF]);
+}
+
+test "Draw wrap quirk changes edge behavior" {
+    var modern = cpu.CPU.init();
+    modern.registers[0] = 63;
+    modern.registers[1] = 31;
+    modern.index_register = 0x300;
+    var modern_memory = [_]u8{0} ** 4096;
+    modern.program_counter = 0;
+    modern_memory[0x300] = 0xC0;
+    modern_memory[0] = 0xD0;
+    modern_memory[1] = 0x11;
+    try execModern(&modern, &modern_memory);
+    try std.testing.expectEqual(@as(u1, 1), modern.display[31 * 64 + 63]);
+    try std.testing.expectEqual(@as(u1, 1), modern.display[31 * 64 + 0]);
+
+    var legacy = cpu.CPU.init();
+    legacy.registers[0] = 64;
+    legacy.registers[1] = 31;
+    legacy.index_register = 0x300;
+    var legacy_memory = [_]u8{0} ** 4096;
+    legacy.program_counter = 0;
+    legacy_memory[0x300] = 0x80;
+    legacy_memory[0] = 0xD0;
+    legacy_memory[1] = 0x11;
+    try legacy.executeInstruction(&legacy_memory, emulation.profileQuirks(.vip_legacy));
+    try std.testing.expectEqual(@as(u1, 0), legacy.display[31 * 64 + 0]);
+}
+
+test "Jump uses VX quirk changes BNNN base register" {
+    var c = cpu.CPU.init();
+    c.registers[0] = 1;
+    c.registers[2] = 5;
+    var memory = [_]u8{0} ** 4096;
+    c.program_counter = 0;
+    memory[0] = 0xB2;
+    memory[1] = 0x34;
+
+    var quirks = emulation.profileQuirks(.modern);
+    quirks.jump_uses_vx = true;
+    try c.executeInstruction(&memory, quirks);
+
+    try std.testing.expectEqual(@as(u16, 0x239), c.program_counter);
+}
+
+test "Persistence app state round-trips through JSON" {
+    var app_state = persistence.AppState.init(std.testing.allocator);
+    defer app_state.deinit();
+
+    app_state.global_settings = .{ .palette = .amber, .effect = .scanlines, .fullscreen = true, .volume = 0.6 };
+    try app_state.upsertRecentRom("/tmp/snake.ch8", "snake.ch8", "abc123", 42);
+    try app_state.upsertRomPreference("abc123", "/tmp/snake.ch8", .vip_legacy, 720, 3);
+
+    var writer: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer writer.deinit();
+    try persistence.serializeAppState(&app_state, &writer.writer);
+
+    var roundtrip = persistence.AppState.init(std.testing.allocator);
+    defer roundtrip.deinit();
+    try persistence.deserializeAppState(std.testing.allocator, writer.written(), &roundtrip);
+
+    try std.testing.expectEqual(@as(usize, 1), roundtrip.recent_roms.items.len);
+    try std.testing.expectEqualStrings("/tmp/snake.ch8", roundtrip.recent_roms.items[0].path);
+    try std.testing.expectEqual(.vip_legacy, roundtrip.rom_preferences.items[0].quirk_profile);
+    try std.testing.expectEqual(@as(i32, 720), roundtrip.rom_preferences.items[0].cpu_hz_target);
+    try std.testing.expectEqual(persistence.DisplayPalette.amber, roundtrip.global_settings.palette);
+}
+
+test "Persistence save state envelope round-trips and rejects bad metadata" {
+    var chip8 = chip8_mod.Chip8.initWithConfig(emulation.EmulationConfig.init(.vip_legacy));
+    chip8.cpu.registers[0] = 0xAA;
+    chip8.memory[0x300] = 0xBB;
+
+    const envelope = persistence.SaveStateEnvelope{
+        .rom_sha256 = [_]u8{0x11} ** 32,
+        .quirk_profile = .vip_legacy,
+        .chip8_state = chip8.snapshot(),
+        .cpu_hz_target = 720,
+        .paused_state = true,
+    };
+
+    var writer: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer writer.deinit();
+    try persistence.serializeSaveStateEnvelope(&envelope, &writer.writer);
+
+    const loaded = try persistence.deserializeSaveStateEnvelope(writer.written());
+    try std.testing.expectEqual(@as(u8, 0xAA), loaded.chip8_state.cpu.registers[0]);
+    try std.testing.expectEqual(@as(u8, 0xBB), loaded.chip8_state.memory[0x300]);
+    try std.testing.expectEqual(@as(i32, 720), loaded.cpu_hz_target);
+
+    var corrupted = try std.testing.allocator.dupe(u8, writer.written());
+    defer std.testing.allocator.free(corrupted);
+    corrupted[0] = 'B';
+    try std.testing.expectError(error.InvalidSaveStateMagic, persistence.deserializeSaveStateEnvelope(corrupted));
+}
+
+test "CPU trace captures key wait, draw, memory transfer, and control flow micro-ops" {
+    var c = cpu.CPU.init();
+    var memory = [_]u8{0} ** 4096;
+
+    c.program_counter = 0;
+    memory[0] = 0xFF;
+    memory[1] = 0x0A;
+    try execModern(&c, &memory);
+    try std.testing.expectEqual(debugger.TraceTag.key, c.last_trace.tag);
+    try std.testing.expect(c.last_trace.waits_for_key);
+    try std.testing.expectEqual(debugger.MicroOpKind.wait_key, c.last_trace.micro_ops[c.last_trace.micro_op_len - 1].kind);
+
+    c = cpu.CPU.init();
+    memory = [_]u8{0} ** 4096;
+    c.program_counter = 0;
+    c.registers[1] = 4;
+    c.registers[2] = 6;
+    c.index_register = 0x300;
+    memory[0] = 0xD1;
+    memory[1] = 0x25;
+    memory[0x300] = 0xF0;
+    try execModern(&c, &memory);
+    try std.testing.expectEqual(debugger.TraceTag.draw, c.last_trace.tag);
+    switch (c.last_trace.destination) {
+        .display => |display_focus| {
+            try std.testing.expectEqual(@as(u8, 8), display_focus.w);
+            try std.testing.expectEqual(@as(u8, 5), display_focus.h);
+            try std.testing.expect(display_focus.wraps);
+            try std.testing.expect(!display_focus.full_screen);
+        },
+        else => return error.TestExpectedEqual,
+    }
+    try std.testing.expect(traceContainsMicroOp(c.last_trace, .read_mem_range));
+    try std.testing.expect(traceContainsMicroOp(c.last_trace, .draw_sprite));
+
+    c = cpu.CPU.init();
+    memory = [_]u8{0} ** 4096;
+    c.program_counter = 0;
+    memory[0] = 0x00;
+    memory[1] = 0xE0;
+    try execModern(&c, &memory);
+    switch (c.last_trace.destination) {
+        .display => |display_focus| {
+            try std.testing.expect(display_focus.full_screen);
+            try std.testing.expectEqual(@as(u8, cpu.DISPLAY_WIDTH), display_focus.w);
+            try std.testing.expectEqual(@as(u8, cpu.DISPLAY_HEIGHT), display_focus.h);
+        },
+        else => return error.TestExpectedEqual,
+    }
+
+    c = cpu.CPU.init();
+    memory = [_]u8{0} ** 4096;
+    c.program_counter = 0;
+    c.index_register = 0x320;
+    c.registers[0] = 0xAA;
+    c.registers[1] = 0xBB;
+    memory[0] = 0xF1;
+    memory[1] = 0x55;
+    try execModern(&c, &memory);
+    try std.testing.expectEqual(debugger.TraceTag.store, c.last_trace.tag);
+    try std.testing.expectEqual(debugger.MicroOpKind.write_mem_range, c.last_trace.micro_ops[c.last_trace.micro_op_len - 1].kind);
+
+    c = cpu.CPU.init();
+    memory = [_]u8{0} ** 4096;
+    c.program_counter = 0;
+    c.stack_pointer = 1;
+    c.stack[0] = 0x456;
+    memory[0] = 0x00;
+    memory[1] = 0xEE;
+    try execModern(&c, &memory);
+    try std.testing.expectEqual(debugger.TraceTag.ret, c.last_trace.tag);
+    try std.testing.expectEqual(debugger.MicroOpKind.pop_stack, c.last_trace.micro_ops[c.last_trace.micro_op_len - 1].kind);
+
+    c = cpu.CPU.init();
+    memory = [_]u8{0} ** 4096;
+    c.program_counter = 0;
+    memory[0] = 0x12;
+    memory[1] = 0x34;
+    try execModern(&c, &memory);
+    try std.testing.expectEqual(debugger.TraceTag.jump, c.last_trace.tag);
+    try std.testing.expectEqual(debugger.MicroOpKind.branch_pc, c.last_trace.micro_ops[c.last_trace.micro_op_len - 1].kind);
+}
+
+test "Debugger breakpoint pause, trace ring, and watch parsing are stable" {
+    var dbg = debugger.DebuggerState.init();
+    dbg.toggleBreakpoint(0x222);
+    dbg.beginResume(0x200);
+
+    try std.testing.expect(!dbg.shouldPauseBeforeExecute(0x200));
+    try std.testing.expect(dbg.shouldPauseBeforeExecute(0x222));
+
+    for (0..140) |i| {
+        dbg.recordTrace(.{
+            .pc = @intCast(0x200 + i * 2),
+            .opcode = @intCast(0xA000 + i),
+            .tag = .fetch,
+        });
+    }
+    try std.testing.expectEqual(@as(usize, debugger.TRACE_CAPACITY), dbg.trace_len);
+    const newest = dbg.traceEntryFromNewest(0).?;
+    try std.testing.expectEqual(@as(u16, 0x200 + 139 * 2), newest.pc);
+
+    try std.testing.expectEqual(@as(u16, 0x2AF), try debugger.parseWatchAddress("2AF"));
+    try std.testing.expectError(error.InvalidWatchAddress, debugger.parseWatchAddress("ZZZZ"));
+}
+
+test "Debugger trace selection disables follow and End-style resume snaps back live" {
+    var dbg = debugger.DebuggerState.init();
+    for (0..6) |i| {
+        dbg.recordTrace(.{
+            .pc = @intCast(0x200 + i * 2),
+            .opcode = @intCast(0x6000 + i),
+            .tag = .load,
+        });
+    }
+
+    try std.testing.expect(dbg.trace_follow_live);
+    try std.testing.expectEqual(@as(?usize, 0), dbg.activeTraceIndex());
+
+    dbg.scrollTrace(2, 3);
+    try std.testing.expect(!dbg.trace_follow_live);
+    try std.testing.expectEqual(@as(usize, 2), dbg.trace_scroll);
+    try std.testing.expectEqual(@as(?usize, 2), dbg.activeTraceIndex());
+
+    dbg.selectTraceIndex(4, 3);
+    try std.testing.expectEqual(@as(?usize, 4), dbg.activeTraceIndex());
+
+    dbg.resumeTraceFollow();
+    try std.testing.expect(dbg.trace_follow_live);
+    try std.testing.expectEqual(@as(usize, 0), dbg.trace_scroll);
+    try std.testing.expectEqual(@as(?usize, 0), dbg.activeTraceIndex());
+}
+
+test "Trace lane mapping is deterministic and suppresses same-lane connectors" {
+    const cross_lane = trace.microOpConnector(.{
+        .kind = .read_mem_range,
+        .source = trace.memoryEndpoint(0x300, 4),
+        .destination = trace.registersEndpoint(0, 4),
+    }).?;
+    try std.testing.expectEqual(trace.Lane.memory, cross_lane.from);
+    try std.testing.expectEqual(trace.Lane.registers, cross_lane.to);
+
+    try std.testing.expectEqual(null, trace.microOpConnector(.{
+        .kind = .write_reg,
+        .source = trace.registersEndpoint(1, 1),
+        .destination = trace.registersEndpoint(2, 1),
+    }));
+
+    try std.testing.expectEqual(null, trace.microOpConnector(.{
+        .kind = .decode_opcode,
+        .source = .decode,
+        .destination = .decode,
+    }));
 }
 
 fn expectStableLayout(ui: display_layout.LayoutMetrics) !void {
@@ -462,4 +822,15 @@ fn countPressedKeys(keys: [16]bool) usize {
         if (pressed) count += 1;
     }
     return count;
+}
+
+fn traceContainsMicroOp(entry: debugger.TraceEntry, kind: debugger.MicroOpKind) bool {
+    for (entry.micro_ops[0..entry.micro_op_len]) |micro_op| {
+        if (micro_op.kind == kind) return true;
+    }
+    return false;
+}
+
+fn execModern(c: *cpu.CPU, memory: *[4096]u8) !void {
+    try c.executeInstruction(memory, emulation.profileQuirks(.modern));
 }
