@@ -8,6 +8,10 @@ const url_mod = @import("core/url.zig");
 const config_mod = @import("core/config.zig");
 const models = @import("core/registry_models.zig");
 const cache = @import("core/cache.zig");
+const state_mod = @import("core/state.zig");
+const chip8_db_cache = @import("core/chip8_db_cache.zig");
+const spec_mod = @import("core/spec.zig");
+const github_mod = @import("core/github.zig");
 const control = @import("core/control_spec.zig");
 const cpu_mod = @import("core/cpu.zig");
 const debugger_mod = @import("core/debugger.zig");
@@ -24,15 +28,15 @@ const LoadedRom = struct {
     path: []u8,
     display_name: []u8,
     data: []u8,
-    sha256: [32]u8,
-    sha256_hex: []u8,
+    sha1: [20]u8,
+    sha1_hex: []u8,
     analysis: assembly.RomAnalysis,
 
     fn deinit(self: *LoadedRom, allocator: std.mem.Allocator) void {
         allocator.free(self.path);
         allocator.free(self.display_name);
         allocator.free(self.data);
-        allocator.free(self.sha256_hex);
+        allocator.free(self.sha1_hex);
         self.* = undefined;
     }
 };
@@ -77,11 +81,81 @@ fn runCommand(init: std.process.Init, command: cli.Command) !void {
         .list => try runListCommand(init),
         .remove => |cmd| try runRemoveCommand(init, cmd.id),
         .update => |cmd| try runUpdateCommand(init, cmd.id),
-        .refresh => try runRefreshCommand(init),
+        .refresh => |cmd| try runRefreshCommand(init, cmd),
         .registries => try runRegistriesCommand(init),
-        .sync => try runSyncCommand(init),
+        .init_manifest => |cmd| try runInitCommand(init, cmd.path),
+        .validate_manifest => |cmd| try runValidateCommand(init, cmd.path),
         .help => try runHelpCommand(init),
     }
+}
+
+// Counts installed ROMs whose on-disk path isn't already listed in recents —
+// these are the ones worth showing as a separate section.
+fn countInstalledNotInRecent(installed: []const models.InstalledRom, recents: []const persistence.RecentRom) usize {
+    var count: usize = 0;
+    for (installed) |rom| {
+        if (!recentsContainPath(recents, rom.local.path)) count += 1;
+    }
+    return count;
+}
+
+fn recentsContainPath(recents: []const persistence.RecentRom, path: []const u8) bool {
+    for (recents) |r| {
+        if (std.mem.eql(u8, r.path, path)) return true;
+    }
+    return false;
+}
+
+// Overlay layout is `[installed_unique..., recent...]`. Resolves `index`
+// back to the ROM path that should be loaded.
+fn resolveOverlaySelection(
+    installed: []const models.InstalledRom,
+    recents: []const persistence.RecentRom,
+    index: usize,
+) ?[]const u8 {
+    var cursor: usize = 0;
+    for (installed) |rom| {
+        if (recentsContainPath(recents, rom.local.path)) continue;
+        if (cursor == index) return rom.local.path;
+        cursor += 1;
+    }
+    const recent_idx = index - cursor;
+    if (recent_idx < recents.len) return recents[recent_idx].path;
+    return null;
+}
+
+fn resolveRomPathAlloc(
+    io: std.Io,
+    allocator: std.mem.Allocator,
+    app_data_root: []const u8,
+    arg: []const u8,
+) ![]u8 {
+    // If the argument is a readable file on disk, use it as-is.
+    if (std.Io.Dir.cwd().statFile(io, arg, .{})) |_| {
+        return try allocator.dupe(u8, arg);
+    } else |_| {}
+
+    // Fall back to installed_roms/<arg>.ch8, then installed_roms/<arg>.
+    {
+        const candidate = try std.fmt.allocPrint(allocator, "{s}/installed_roms/{s}.ch8", .{ app_data_root, arg });
+        if (std.Io.Dir.cwd().statFile(io, candidate, .{})) |_| {
+            return candidate;
+        } else |_| {
+            allocator.free(candidate);
+        }
+    }
+    {
+        const candidate = try std.fmt.allocPrint(allocator, "{s}/installed_roms/{s}", .{ app_data_root, arg });
+        if (std.Io.Dir.cwd().statFile(io, candidate, .{})) |_| {
+            return candidate;
+        } else |_| {
+            allocator.free(candidate);
+        }
+    }
+
+    // Nothing matched — return the original so the downstream caller surfaces
+    // the "file not found" error naturally.
+    return try allocator.dupe(u8, arg);
 }
 
 fn runGui(init: std.process.Init, initial_rom_path: ?[]const u8, requested_profile: ?emulation.QuirkProfile) !void {
@@ -91,6 +165,14 @@ fn runGui(init: std.process.Init, initial_rom_path: ?[]const u8, requested_profi
 
     var app_state = try persistence.loadAppState(init.io, init.gpa, app_data_root);
     defer app_state.deinit();
+
+    // Catalog of installed ROMs — shown in the startup overlay so users can
+    // launch `chip8 get`-installed ROMs they haven't opened yet.
+    const installed_list = registry.listInstalled(init.io, init.gpa, app_data_root) catch &.{};
+    defer {
+        for (installed_list) |r| r.deinit(init.gpa);
+        init.gpa.free(installed_list);
+    }
 
     rl.setConfigFlags(.{ .window_resizable = true });
     rl.initWindow(display.DEFAULT_WINDOW_WIDTH, display.DEFAULT_WINDOW_HEIGHT, "Chip-8 Emulator");
@@ -123,12 +205,14 @@ fn runGui(init: std.process.Init, initial_rom_path: ?[]const u8, requested_profi
     var disasm_scroll: i32 = 0;
 
     if (initial_rom_path) |rom_path| {
+        const resolved = try resolveRomPathAlloc(init.io, init.gpa, app_data_root, rom_path);
+        defer init.gpa.free(resolved);
         var mutable_init = init;
         loaded_rom = try loadRomIntoRuntime(
             &mutable_init,
             app_data_root,
             &app_state,
-            rom_path,
+            resolved,
             requested_profile,
             &chip8,
             &timing_state,
@@ -136,7 +220,7 @@ fn runGui(init: std.process.Init, initial_rom_path: ?[]const u8, requested_profi
         );
         debugger_state = debugger_mod.DebuggerState.init();
         state = .running;
-    } else if (app_state.recent_roms.items.len > 0) {
+    } else if (app_state.recent_roms.items.len > 0 or installed_list.len > 0) {
         ui_state.overlay = .recent_roms;
     }
 
@@ -168,6 +252,7 @@ fn runGui(init: std.process.Init, initial_rom_path: ?[]const u8, requested_profi
             &init,
             app_data_root,
             &app_state,
+            installed_list,
             &loaded_rom,
             &chip8,
             &debugger_state,
@@ -404,6 +489,7 @@ fn runGui(init: std.process.Init, initial_rom_path: ?[]const u8, requested_profi
             &debugger_state,
             &ui_state,
             app_state.recent_roms.items,
+            installed_list,
             app_state.global_settings,
             @intFromFloat(timing_state.cpu_hz_target),
             &mem_scroll,
@@ -420,6 +506,7 @@ fn handleOverlayInput(
     init: *const std.process.Init,
     app_data_root: []const u8,
     app_state: *persistence.AppState,
+    installed: []const models.InstalledRom,
     loaded_rom: *?LoadedRom,
     chip8: *Chip8,
     debugger_state: *debugger_mod.DebuggerState,
@@ -434,13 +521,15 @@ fn handleOverlayInput(
                 ui_state.overlay = .none;
                 return false;
             }
-            if (app_state.recent_roms.items.len == 0) return false;
-            if (rl.isKeyPressed(.down)) ui_state.recent_selection = @min(ui_state.recent_selection + 1, app_state.recent_roms.items.len - 1);
+            const installed_visible = countInstalledNotInRecent(installed, app_state.recent_roms.items);
+            const total = installed_visible + app_state.recent_roms.items.len;
+            if (total == 0) return false;
+            if (rl.isKeyPressed(.down)) ui_state.recent_selection = @min(ui_state.recent_selection + 1, total - 1);
             if (rl.isKeyPressed(.up)) ui_state.recent_selection -|= 1;
             if (rl.isKeyPressed(.enter)) {
-                const recent = app_state.recent_roms.items[ui_state.recent_selection];
+                const path = resolveOverlaySelection(installed, app_state.recent_roms.items, ui_state.recent_selection) orelse return false;
                 var mutable_init = init.*;
-                const new_rom = try loadRomIntoRuntime(&mutable_init, app_data_root, app_state, recent.path, null, chip8, timing_state, ui_state);
+                const new_rom = try loadRomIntoRuntime(&mutable_init, app_data_root, app_state, path, null, chip8, timing_state, ui_state);
                 if (loaded_rom.*) |*current| current.deinit(init.gpa);
                 loaded_rom.* = new_rom;
                 debugger_state.* = debugger_mod.DebuggerState.init();
@@ -509,18 +598,6 @@ fn handleOverlayInput(
     }
 }
 
-fn runSyncCommand(init: std.process.Init) !void {
-    const app_data_root = try persistence.defaultAppDataRootAlloc(init.gpa, init.minimal.environ);
-    defer init.gpa.free(app_data_root);
-
-    const config = try config_mod.loadConfig(init.io, init.gpa, app_data_root);
-    defer config.deinit(init.gpa);
-
-    std.debug.print("Synchronizing local registries...\n", .{});
-    try registry.syncLocalRegistries(init.io, init.gpa, app_data_root, config);
-    std.debug.print("Sync complete.\n", .{});
-}
-
 fn runHelpCommand(init: std.process.Init) !void {
     _ = init;
     std.debug.print("{s}\n", .{cli.usage()});
@@ -555,16 +632,16 @@ fn loadRomIntoRuntime(
     errdefer init.gpa.free(rom_data);
 
 
-    const sha256 = persistence.computeRomSha256(rom_data);
-    const sha256_hex = try persistence.sha256HexAlloc(init.gpa, sha256);
-    errdefer init.gpa.free(sha256_hex);
+    const sha1 = persistence.computeRomSha1(rom_data);
+    const sha1_hex = try persistence.sha1HexAlloc(init.gpa, sha1);
+    errdefer init.gpa.free(sha1_hex);
 
     const path_copy = try init.gpa.dupe(u8, rom_path);
     errdefer init.gpa.free(path_copy);
     const display_name = try init.gpa.dupe(u8, persistence.basename(rom_path));
     errdefer init.gpa.free(display_name);
 
-    const pref = app_state.findRomPreference(sha256_hex);
+    const pref = app_state.findRomPreference(sha1_hex);
     const inferred_profile = assembly.inferProfile(rom_data);
     const profile = requested_profile orelse if (pref) |value|
         preferredProfile(value.quirk_profile, inferred_profile)
@@ -595,16 +672,16 @@ fn loadRomIntoRuntime(
         ui_state.clearStatus();
     }
 
-    try app_state.upsertRecentRom(rom_path, display_name, sha256_hex, std.Io.Clock.now(.real, init.io).toMilliseconds());
-    try app_state.upsertRomPreference(sha256_hex, rom_path, chip8.config.quirk_profile, hz, ui_state.active_save_slot);
+    try app_state.upsertRecentRom(rom_path, display_name, sha1_hex, std.Io.Clock.now(.real, init.io).toMilliseconds());
+    try app_state.upsertRomPreference(sha1_hex, rom_path, chip8.config.quirk_profile, hz, ui_state.active_save_slot);
     try persistence.saveAppState(init.io, init.gpa, app_data_root, app_state);
 
     return .{
         .path = path_copy,
         .display_name = display_name,
         .data = rom_data,
-        .sha256 = sha256,
-        .sha256_hex = sha256_hex,
+        .sha1 = sha1,
+        .sha1_hex = sha1_hex,
         .analysis = analysis,
     };
 }
@@ -641,13 +718,13 @@ fn saveCurrentSlot(
     slot: u8,
 ) !void {
     const envelope = persistence.SaveStateEnvelope{
-        .rom_sha256 = loaded_rom.sha256,
+        .rom_sha1 = loaded_rom.sha1,
         .quirk_profile = chip8.config.quirk_profile,
         .chip8_state = chip8.snapshot(),
         .cpu_hz_target = @intFromFloat(timing_state.cpu_hz_target),
         .paused_state = state != .running,
     };
-    try persistence.saveEnvelopeToFile(init.io, init.gpa, app_data_root, loaded_rom.sha256_hex, slot, &envelope);
+    try persistence.saveEnvelopeToFile(init.io, init.gpa, app_data_root, loaded_rom.sha1_hex, slot, &envelope);
 }
 
 fn loadCurrentSlot(
@@ -659,8 +736,8 @@ fn loadCurrentSlot(
     state: *display.EmulatorState,
     slot: u8,
 ) !void {
-    const envelope = try persistence.loadEnvelopeFromFile(init.io, init.gpa, app_data_root, loaded_rom.sha256_hex, slot);
-    if (!std.mem.eql(u8, &envelope.rom_sha256, &loaded_rom.sha256)) return error.SaveStateRomMismatch;
+    const envelope = try persistence.loadEnvelopeFromFile(init.io, init.gpa, app_data_root, loaded_rom.sha1_hex, slot);
+    if (!std.mem.eql(u8, &envelope.rom_sha1, &loaded_rom.sha1)) return error.SaveStateRomMismatch;
     chip8.restore(envelope.chip8_state);
     timing_state.cpu_hz_target = @floatFromInt(timing.clampCpuHz(envelope.cpu_hz_target));
     state.* = if (envelope.paused_state) .paused else .running;
@@ -677,7 +754,7 @@ fn persistCurrentRomPreference(
 ) !void {
     if (loaded_rom) |rom| {
         try app_state.upsertRomPreference(
-            rom.sha256_hex,
+            rom.sha1_hex,
             rom.path,
             chip8.config.quirk_profile,
             @intFromFloat(timing_state.cpu_hz_target),
@@ -724,7 +801,7 @@ fn exportCurrentSource(
     chip8: *const Chip8,
     ui_state: *ui_mod.UiState,
 ) !void {
-    const export_path = try persistence.sourceExportPathAlloc(init.gpa, app_data_root, loaded_rom.sha256_hex, loaded_rom.display_name);
+    const export_path = try persistence.sourceExportPathAlloc(init.gpa, app_data_root, loaded_rom.sha1_hex, loaded_rom.display_name);
     defer init.gpa.free(export_path);
 
     const export_dir = std.fs.path.dirname(export_path) orelse ".";
@@ -732,7 +809,7 @@ fn exportCurrentSource(
 
     var exported = try assembly.exportAnnotatedSource(init.gpa, .{
         .rom_name = loaded_rom.display_name,
-        .sha256_hex = loaded_rom.sha256_hex,
+        .sha1_hex = loaded_rom.sha1_hex,
         .profile = chip8.config.quirk_profile,
     }, loaded_rom.data);
     defer exported.deinit(init.gpa);
@@ -782,45 +859,83 @@ fn openInVsCode(init: *const std.process.Init, path: []const u8, line: usize) !v
     _ = try child.wait(init.io);
 }
 
+fn resolveToken(init: std.process.Init, config: config_mod.Config) !?[]const u8 {
+    return try github_mod.resolveToken(init.gpa, init.minimal.environ, config.github_token);
+}
+
 fn runGetCommand(init: std.process.Init, source: []const u8) !void {
     const app_data_root = try persistence.defaultAppDataRootAlloc(init.gpa, init.minimal.environ);
     defer init.gpa.free(app_data_root);
 
-    const config = try config_mod.loadConfig(init.io, init.gpa, app_data_root);
+    var config = try config_mod.loadConfig(init.io, init.gpa, app_data_root);
     defer config.deinit(init.gpa);
 
-    const source_url = try url_mod.parse(init.gpa, source);
+    const tok = try resolveToken(init, config);
+    if (config.github_token == null and tok != null) config.github_token = tok.?;
+    defer if (config.github_token != null and tok != null) init.gpa.free(tok.?);
+
+    const source_url = url_mod.parse(init.gpa, source) catch |err| switch (err) {
+        error.UnquotedGlob => {
+            std.debug.print("Error: the argument looks like an unquoted glob. Try quoting it:\n  chip8 get '{s}'\n", .{source});
+            return;
+        },
+        else => return err,
+    };
     defer source_url.deinit(init.gpa);
 
+    var state = try state_mod.loadState(init.io, init.gpa, app_data_root);
+    defer state.deinit();
+    var db_cache = try chip8_db_cache.load(init.io, init.gpa, app_data_root);
+    defer db_cache.deinit();
+
+    var ctx = registry.InstallContext{
+        .io = init.io,
+        .allocator = init.gpa,
+        .app_data_root = app_data_root,
+        .config = config,
+        .state = &state,
+        .db_cache = &db_cache,
+    };
+
     std.debug.print("Fetching {s}...\n", .{source});
-    const installed = try registry.install(init.io, init.gpa, source_url, app_data_root, config);
+    const installed = registry.install(&ctx, source_url) catch |err| {
+        printRegistryError(err, source);
+        return;
+    };
     defer installed.deinit(init.gpa);
 
+    try state_mod.saveState(init.io, init.gpa, app_data_root, &state);
+    try chip8_db_cache.save(init.io, init.gpa, app_data_root, &db_cache);
+
     std.debug.print("Successfully installed {s} to {s}\n", .{ installed.metadata.id, installed.local.path });
+    if (installed.metadata.chip8_db_entry) |e| {
+        std.debug.print("  {s} ({s})\n", .{ e.title, e.release });
+    }
 }
 
 fn runSearchCommand(init: std.process.Init, query: []const u8) !void {
     const app_data_root = try persistence.defaultAppDataRootAlloc(init.gpa, init.minimal.environ);
     defer init.gpa.free(app_data_root);
 
-    const config = try config_mod.loadConfig(init.io, init.gpa, app_data_root);
-    defer config.deinit(init.gpa);
+    var state = try state_mod.loadState(init.io, init.gpa, app_data_root);
+    defer state.deinit();
+    var db_cache = try chip8_db_cache.load(init.io, init.gpa, app_data_root);
+    defer db_cache.deinit();
 
-    std.debug.print("Searching for \"{s}\" across registries...\n", .{query});
-    const results = try registry.search(init.io, init.gpa, query, config);
+    const results = try registry.search(init.gpa, query, &state, &db_cache);
     defer {
         for (results) |r| r.deinit(init.gpa);
         init.gpa.free(results);
     }
 
     if (results.len == 0) {
-        std.debug.print("No results found.\n", .{});
+        std.debug.print("No results found. Try `chip8 refresh` to fetch registry state.\n", .{});
         return;
     }
 
     for (results) |res| {
-        std.debug.print("  - {s} [{s}]\n", .{ res.metadata.id, res.registry_name orelse "unknown" });
-        if (res.metadata.source_url) |url| std.debug.print("    Source: {s}\n", .{url});
+        const title = if (res.metadata.chip8_db_entry) |e| e.title else res.metadata.id;
+        std.debug.print("  {s}:{s}  -  {s}\n", .{ res.registry_name, res.metadata.id, title });
     }
 }
 
@@ -841,7 +956,8 @@ fn runListCommand(init: std.process.Init) !void {
 
     std.debug.print("Installed ROMs:\n", .{});
     for (installed) |rom| {
-        std.debug.print("  - {s} ({s})\n", .{ rom.metadata.id, rom.metadata.name orelse "unnamed" });
+        const title = if (rom.metadata.chip8_db_entry) |e| e.title else rom.metadata.file;
+        std.debug.print("  - {s}  ({s})\n", .{ rom.metadata.id, title });
     }
 }
 
@@ -854,17 +970,98 @@ fn runRemoveCommand(init: std.process.Init, id: []const u8) !void {
 }
 
 fn runUpdateCommand(init: std.process.Init, id: ?[]const u8) !void {
-    _ = init;
-    _ = id;
-    std.debug.print("Update is not yet implemented.\n", .{});
-}
-
-fn runRefreshCommand(init: std.process.Init) !void {
     const app_data_root = try persistence.defaultAppDataRootAlloc(init.gpa, init.minimal.environ);
     defer init.gpa.free(app_data_root);
 
-    try cache.clearCache(init.io, app_data_root);
-    std.debug.print("Cache cleared.\n", .{});
+    var config = try config_mod.loadConfig(init.io, init.gpa, app_data_root);
+    defer config.deinit(init.gpa);
+
+    const tok = try resolveToken(init, config);
+    if (config.github_token == null and tok != null) config.github_token = tok.?;
+    defer if (config.github_token != null and tok != null) init.gpa.free(tok.?);
+
+    var state = try state_mod.loadState(init.io, init.gpa, app_data_root);
+    defer state.deinit();
+    var db_cache = try chip8_db_cache.load(init.io, init.gpa, app_data_root);
+    defer db_cache.deinit();
+
+    var ctx = registry.InstallContext{
+        .io = init.io,
+        .allocator = init.gpa,
+        .app_data_root = app_data_root,
+        .config = config,
+        .state = &state,
+        .db_cache = &db_cache,
+    };
+
+    if (id) |only_id| {
+        const updated = registry.update(&ctx, only_id) catch |err| {
+            printRegistryError(err, only_id);
+            return;
+        };
+        defer updated.deinit(init.gpa);
+        std.debug.print("Updated {s}.\n", .{only_id});
+    } else {
+        const installed = try registry.listInstalled(init.io, init.gpa, app_data_root);
+        defer {
+            for (installed) |i| i.deinit(init.gpa);
+            init.gpa.free(installed);
+        }
+        for (installed) |rom| {
+            const updated = registry.update(&ctx, rom.metadata.id) catch |err| {
+                std.debug.print("  {s}: {s}\n", .{ rom.metadata.id, @errorName(err) });
+                continue;
+            };
+            defer updated.deinit(init.gpa);
+            std.debug.print("  {s}: ok\n", .{rom.metadata.id});
+        }
+    }
+
+    try state_mod.saveState(init.io, init.gpa, app_data_root, &state);
+    try chip8_db_cache.save(init.io, init.gpa, app_data_root, &db_cache);
+}
+
+fn runRefreshCommand(init: std.process.Init, cmd: cli.RefreshCommand) !void {
+    const app_data_root = try persistence.defaultAppDataRootAlloc(init.gpa, init.minimal.environ);
+    defer init.gpa.free(app_data_root);
+
+    var config = try config_mod.loadConfig(init.io, init.gpa, app_data_root);
+    defer config.deinit(init.gpa);
+
+    const tok = try resolveToken(init, config);
+    if (config.github_token == null and tok != null) config.github_token = tok.?;
+    defer if (config.github_token != null and tok != null) init.gpa.free(tok.?);
+
+    var state = try state_mod.loadState(init.io, init.gpa, app_data_root);
+    defer state.deinit();
+    var db_cache = try chip8_db_cache.load(init.io, init.gpa, app_data_root);
+    defer db_cache.deinit();
+
+    if (cmd.db_only) {
+        std.debug.print("Refreshing chip-8-database cache...\n", .{});
+        chip8_db_cache.refreshAll(init.io, init.gpa, &db_cache) catch |err| {
+            std.debug.print("Failed: {s}\n", .{@errorName(err)});
+            return;
+        };
+        try chip8_db_cache.save(init.io, init.gpa, app_data_root, &db_cache);
+        std.debug.print("Done.\n", .{});
+        return;
+    }
+
+    if (cmd.registry_name) |name| {
+        std.debug.print("Refreshing {s}...\n", .{name});
+        state_mod.syncRegistry(init.io, init.gpa, &state, name, config, &db_cache) catch |err| {
+            std.debug.print("Failed: {s}\n", .{@errorName(err)});
+            return;
+        };
+    } else {
+        std.debug.print("Refreshing all registries...\n", .{});
+        try state_mod.syncAll(init.io, init.gpa, &state, config, &db_cache);
+    }
+
+    try state_mod.saveState(init.io, init.gpa, app_data_root, &state);
+    try chip8_db_cache.save(init.io, init.gpa, app_data_root, &db_cache);
+    std.debug.print("Done.\n", .{});
 }
 
 fn runRegistriesCommand(init: std.process.Init) !void {
@@ -874,18 +1071,84 @@ fn runRegistriesCommand(init: std.process.Init) !void {
     const config = try config_mod.loadConfig(init.io, init.gpa, app_data_root);
     defer config.deinit(init.gpa);
 
+    var state = try state_mod.loadState(init.io, init.gpa, app_data_root);
+    defer state.deinit();
+
     std.debug.print("Known Registries:\n", .{});
     for (config.known_registries) |reg| {
-        if (reg.repo) |repo| {
-            std.debug.print("  - {s} (GitHub: {s})\n", .{ reg.name, repo });
-        } else if (reg.local_path) |path| {
-            std.debug.print("  - {s} (Local: {s})\n", .{ reg.name, path });
+        std.debug.print("  - {s} (GitHub: {s})\n", .{ reg.name, reg.repo });
+        if (state.get(reg.name)) |rs| {
+            std.debug.print("      last_synced: {d}, entries: {d}\n", .{ rs.last_synced, rs.entries.len });
         } else {
-            std.debug.print("  - {s}\n", .{reg.name});
+            std.debug.print("      last_synced: never\n", .{});
         }
         for (reg.globs) |glob| {
             std.debug.print("      {s}\n", .{glob});
         }
+    }
+}
+
+fn runInitCommand(init: std.process.Init, path: ?[]const u8) !void {
+    const target = path orelse ".";
+
+    const app_data_root = try persistence.defaultAppDataRootAlloc(init.gpa, init.minimal.environ);
+    defer init.gpa.free(app_data_root);
+
+    var db_cache = try chip8_db_cache.load(init.io, init.gpa, app_data_root);
+    defer db_cache.deinit();
+
+    const manifest = try spec_mod.scaffoldManifest(init.io, init.gpa, target, &db_cache);
+    defer manifest.deinit(init.gpa);
+
+    const manifest_path = try std.fmt.allocPrint(init.gpa, "{s}/chip8.json", .{target});
+    defer init.gpa.free(manifest_path);
+
+    var writer: std.Io.Writer.Allocating = .init(init.gpa);
+    defer writer.deinit();
+    try std.json.Stringify.value(manifest, .{ .whitespace = .indent_2 }, &writer.writer);
+    try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = manifest_path, .data = writer.written() });
+
+    std.debug.print("Wrote {s} ({d} roms)\n", .{ manifest_path, manifest.roms.len });
+}
+
+fn runValidateCommand(init: std.process.Init, path: ?[]const u8) !void {
+    const file_path = blk: {
+        if (path) |p| {
+            if (std.mem.endsWith(u8, p, ".json")) break :blk try init.gpa.dupe(u8, p);
+            break :blk try std.fmt.allocPrint(init.gpa, "{s}/chip8.json", .{p});
+        }
+        break :blk try init.gpa.dupe(u8, "chip8.json");
+    };
+    defer init.gpa.free(file_path);
+
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(init.io, file_path, init.gpa, .limited(1 * 1024 * 1024));
+    defer init.gpa.free(bytes);
+
+    const result = try spec_mod.validateManifest(init.gpa, bytes);
+    defer result.deinit(init.gpa);
+
+    switch (result) {
+        .ok => |m| std.debug.print("ok — {d} roms, spec_version {d}\n", .{ m.roms.len, m.spec_version }),
+        .errors => |errs| {
+            std.debug.print("INVALID — {d} errors:\n", .{errs.len});
+            for (errs) |e| std.debug.print("  {s}: {s}\n", .{ e.field_path, e.message });
+            std.process.exit(1);
+        },
+    }
+}
+
+fn printRegistryError(err: anyerror, context: []const u8) void {
+    const name = @errorName(err);
+    if (std.mem.eql(u8, name, "UnquotedGlob")) {
+        std.debug.print("Did you mean to quote the pattern? Try: chip8 get '{s}'\n", .{context});
+    } else if (std.mem.eql(u8, name, "NotFoundStale")) {
+        std.debug.print("'{s}' not found and couldn't verify live (network unavailable). Try `chip8 refresh` when online.\n", .{context});
+    } else if (std.mem.eql(u8, name, "NoManifestFound")) {
+        std.debug.print("No chip8.json in that repo. Try a specific file path or glob, e.g. 'user/repo/games/*.ch8'.\n", .{});
+    } else if (std.mem.eql(u8, name, "AmbiguousQuery")) {
+        std.debug.print("Multiple matches for '{s}'. Re-run with a specific id.\n", .{context});
+    } else {
+        std.debug.print("Error: {s} ({s})\n", .{ name, context });
     }
 }
 
@@ -902,13 +1165,13 @@ fn runDisasmCommand(init: std.process.Init, rom_path: []const u8, output_path: ?
     const rom_data = try std.Io.Dir.cwd().readFileAlloc(init.io, rom_path, init.gpa, .limited(cpu_mod.CHIP8_MEMORY_SIZE - @as(usize, assembly.ROM_START)));
     defer init.gpa.free(rom_data);
 
-    const sha = persistence.computeRomSha256(rom_data);
-    const sha_hex = try persistence.sha256HexAlloc(init.gpa, sha);
+    const sha = persistence.computeRomSha1(rom_data);
+    const sha_hex = try persistence.sha1HexAlloc(init.gpa, sha);
     defer init.gpa.free(sha_hex);
 
     var exported = try assembly.exportAnnotatedSource(init.gpa, .{
         .rom_name = persistence.basename(rom_path),
-        .sha256_hex = sha_hex,
+        .sha1_hex = sha_hex,
         .profile = requested_profile orelse assembly.inferProfile(rom_data),
     }, rom_data);
     defer exported.deinit(init.gpa);

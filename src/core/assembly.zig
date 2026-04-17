@@ -34,7 +34,7 @@ pub const UiCodeRow = struct {
 
 pub const ExportMeta = struct {
     rom_name: []const u8,
-    sha256_hex: []const u8,
+    sha1_hex: []const u8,
     profile: emulation.QuirkProfile,
 };
 
@@ -244,7 +244,7 @@ pub fn exportAnnotatedSource(
 
     var line_no: u32 = 1;
     try appendLine(&writer.writer, &line_no, "; ROM: {s}\n", .{meta.rom_name});
-    try appendLine(&writer.writer, &line_no, "; SHA256: {s}\n", .{meta.sha256_hex});
+    try appendLine(&writer.writer, &line_no, "; SHA256: {s}\n", .{meta.sha1_hex});
     try appendLine(&writer.writer, &line_no, "; Dialect: {s}\n", .{profileName(meta.profile)});
     try appendLine(&writer.writer, &line_no, "; CHIP-8 syntax: VX/VY registers, N nibble, KK byte, NNN address\n", .{});
     try appendLine(&writer.writer, &line_no, "; Assembly is authoritative; right-side comments are inferred pseudocode.\n", .{});

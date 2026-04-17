@@ -1,45 +1,39 @@
 const std = @import("std");
 const models = @import("registry_models.zig");
+const cache = @import("cache.zig");
 
 pub const Config = struct {
     known_registries: []models.KnownRegistry,
+    github_token: ?[]const u8 = null,
 
     pub fn deinit(self: Config, allocator: std.mem.Allocator) void {
         for (self.known_registries) |reg| reg.deinit(allocator);
         allocator.free(self.known_registries);
+        if (self.github_token) |v| allocator.free(v);
     }
 };
 
-const DEFAULT_REGISTRIES = [_]struct { name: []const u8, repo: ?[]const u8, local_path: ?[]const u8, globs: []const []const u8 }{
-    .{
-        .name = "local",
-        .repo = null,
-        .local_path = "roms",
-        .globs = &.{ "*.ch8" },
-    },
+const DefaultRegistry = struct {
+    name: []const u8,
+    repo: []const u8,
+    globs: []const []const u8,
+};
+
+pub const DEFAULT_REGISTRIES: []const DefaultRegistry = &.{
     .{
         .name = "kripod",
         .repo = "kripod/chip8-roms",
-        .local_path = null,
         .globs = &.{ "games/*.ch8", "demos/*.ch8", "programs/*.ch8" },
     },
     .{
         .name = "dmatlack",
         .repo = "dmatlack/chip8",
-        .local_path = null,
         .globs = &.{ "roms/games/*.ch8", "roms/demos/*.ch8" },
     },
     .{
         .name = "earnest",
         .repo = "JohnEarnest/chip8Archive",
-        .local_path = null,
-        .globs = &.{ "roms/*.ch8", "programs/*.ch8" },
-    },
-    .{
-        .name = "viper",
-        .repo = "Timendus/3d-viper-maze",
-        .local_path = null,
-        .globs = &.{ "*.ch8" },
+        .globs = &.{"roms/*.ch8"},
     },
 };
 
@@ -47,64 +41,79 @@ pub fn loadConfig(io: std.Io, allocator: std.mem.Allocator, app_data_root: []con
     const config_path = try std.fmt.allocPrint(allocator, "{s}/config.json", .{app_data_root});
     defer allocator.free(config_path);
 
-    const data = std.Io.Dir.cwd().readFileAlloc(io, config_path, allocator, .limited(1 * 1024 * 1024)) catch |err| switch (err) {
-        error.FileNotFound => return try createDefaultConfig(io, allocator, app_data_root),
-        else => return err,
+    const ParsedShape = struct {
+        known_registries: []models.KnownRegistry,
+        github_token: ?[]const u8 = null,
     };
-    defer allocator.free(data);
 
-    const parsed = try std.json.parseFromSlice(Config, allocator, data, .{ .ignore_unknown_fields = true });
-    defer parsed.deinit();
-
-    var registries = try allocator.alloc(models.KnownRegistry, parsed.value.known_registries.len);
-    for (parsed.value.known_registries, 0..) |reg, i| {
-        var globs = try allocator.alloc([]const u8, reg.globs.len);
-        for (reg.globs, 0..) |glob, j| {
-            globs[j] = try allocator.dupe(u8, glob);
-        }
-        registries[i] = .{
-            .name = try allocator.dupe(u8, reg.name),
-            .repo = if (reg.repo) |v| try allocator.dupe(u8, v) else null,
-            .local_path = if (reg.local_path) |v| try allocator.dupe(u8, v) else null,
-            .globs = globs,
-        };
+    // If the file is present but doesn't match the current schema
+    // (e.g. carries fields from an earlier version), treat it as missing
+    // and regenerate. User config is stateful but recoverable.
+    const parsed_opt = cache.readJson(io, allocator, config_path, ParsedShape) catch null;
+    if (parsed_opt) |parsed| {
+        defer parsed.deinit();
+        return try cloneConfig(allocator, parsed.value.known_registries, parsed.value.github_token);
     }
 
-    return .{ .known_registries = registries };
-}
-
-fn createDefaultConfig(io: std.Io, allocator: std.mem.Allocator, app_data_root: []const u8) !Config {
-    var registries = try allocator.alloc(models.KnownRegistry, DEFAULT_REGISTRIES.len);
-    for (DEFAULT_REGISTRIES, 0..) |reg, i| {
-        var globs = try allocator.alloc([]const u8, reg.globs.len);
-        for (reg.globs, 0..) |glob, j| {
-            globs[j] = try allocator.dupe(u8, glob);
-        }
-        registries[i] = .{
-            .name = try allocator.dupe(u8, reg.name),
-            .repo = if (reg.repo) |v| try allocator.dupe(u8, v) else null,
-            .local_path = if (reg.local_path) |v| try allocator.dupe(u8, v) else null,
-            .globs = globs,
-        };
-    }
-
-    const config = Config{ .known_registries = registries };
-    try saveConfig(io, allocator, app_data_root, config);
-    return config;
+    const defaults = try buildDefaults(allocator);
+    const cfg = Config{ .known_registries = defaults, .github_token = null };
+    try saveConfig(io, allocator, app_data_root, cfg);
+    return cfg;
 }
 
 pub fn saveConfig(io: std.Io, allocator: std.mem.Allocator, app_data_root: []const u8, config: Config) !void {
     const config_path = try std.fmt.allocPrint(allocator, "{s}/config.json", .{app_data_root});
     defer allocator.free(config_path);
+    try cache.writeJsonAtomic(io, allocator, config_path, config);
+}
 
-    if (std.fs.path.dirname(config_path)) |dir| {
-        try std.Io.Dir.cwd().createDirPath(io, dir);
+fn buildDefaults(allocator: std.mem.Allocator) ![]models.KnownRegistry {
+    var registries = try allocator.alloc(models.KnownRegistry, DEFAULT_REGISTRIES.len);
+    var populated: usize = 0;
+    errdefer {
+        for (registries[0..populated]) |r| r.deinit(allocator);
+        allocator.free(registries);
     }
-
-    var writer: std.Io.Writer.Allocating = .init(allocator);
-    defer writer.deinit();
-    try std.json.Stringify.value(config, .{ .whitespace = .indent_2 }, &writer.writer);
-
-    try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = config_path, .data = writer.written() });
+    for (DEFAULT_REGISTRIES, 0..) |reg, i| {
+        var globs = try allocator.alloc([]const u8, reg.globs.len);
+        var glob_pop: usize = 0;
+        errdefer {
+            for (globs[0..glob_pop]) |g| allocator.free(g);
+            allocator.free(globs);
+        }
+        for (reg.globs, 0..) |glob, j| {
+            globs[j] = try allocator.dupe(u8, glob);
+            glob_pop = j + 1;
+        }
+        registries[i] = .{
+            .name = try allocator.dupe(u8, reg.name),
+            .repo = try allocator.dupe(u8, reg.repo),
+            .globs = globs,
+        };
+        populated = i + 1;
     }
+    return registries;
+}
 
+fn cloneConfig(allocator: std.mem.Allocator, src_regs: []models.KnownRegistry, src_token: ?[]const u8) !Config {
+    var registries = try allocator.alloc(models.KnownRegistry, src_regs.len);
+    var populated: usize = 0;
+    errdefer {
+        for (registries[0..populated]) |r| r.deinit(allocator);
+        allocator.free(registries);
+    }
+    for (src_regs, 0..) |reg, i| {
+        var globs = try allocator.alloc([]const u8, reg.globs.len);
+        for (reg.globs, 0..) |glob, j| {
+            globs[j] = try allocator.dupe(u8, glob);
+        }
+        registries[i] = .{
+            .name = try allocator.dupe(u8, reg.name),
+            .repo = try allocator.dupe(u8, reg.repo),
+            .globs = globs,
+        };
+        populated = i + 1;
+    }
+    const token = if (src_token) |t| try allocator.dupe(u8, t) else null;
+    return .{ .known_registries = registries, .github_token = token };
+}

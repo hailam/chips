@@ -1,0 +1,29 @@
+{
+  "known_registries": [
+    {
+      "name": "kripod",
+      "repo": "kripod/chip8-roms",
+      "globs": [
+        "games/*.ch8",
+        "demos/*.ch8",
+        "programs/*.ch8"
+      ]
+    },
+    {
+      "name": "dmatlack",
+      "repo": "dmatlack/chip8",
+      "globs": [
+        "roms/games/*.ch8",
+        "roms/demos/*.ch8"
+      ]
+    },
+    {
+      "name": "earnest",
+      "repo": "JohnEarnest/chip8Archive",
+      "globs": [
+        "roms/*.ch8"
+      ]
+    }
+  ],
+  "github_token": null
+}

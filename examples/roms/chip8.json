@@ -1,0 +1,11 @@
+{
+  "spec_version": 1,
+  "roms": [
+    {
+      "id": "ibm-logo",
+      "file": "ibm_logo.ch8",
+      "sha1": "1ba58656810b67fd131eb9af3e3987863bf26c90",
+      "tags": ["test", "public-domain"]
+    }
+  ]
+}

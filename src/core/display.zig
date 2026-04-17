@@ -8,6 +8,7 @@ const control = @import("control_spec.zig");
 const debugger_mod = @import("debugger.zig");
 const emulation = @import("emulation_config.zig");
 const layout = @import("display_layout.zig");
+const models = @import("registry_models.zig");
 const persistence = @import("persistence.zig");
 const trace_mod = @import("trace.zig");
 const ui_mod = @import("ui_state.zig");
@@ -79,6 +80,7 @@ pub fn renderAll(
     debugger_state: *const debugger_mod.DebuggerState,
     ui_state: *const ui_mod.UiState,
     recent_roms: []const persistence.RecentRom,
+    installed_roms: []const models.InstalledRom,
     settings: persistence.DisplaySettings,
     cpu_hz: i32,
     mem_scroll: *i32,
@@ -124,7 +126,7 @@ pub fn renderAll(
     renderFooter(ui.footer, ui.footer_two_rows, cpu_hz, cpu.sound_timer, muted, chip8.config.quirk_profile, ui_state.active_save_slot, settings.volume, ui_state.status(), rom_name);
 
     if (overlay_open) {
-        renderOverlay(ui, ui_state, debugger_state, recent_roms);
+        renderOverlay(ui, ui_state, debugger_state, recent_roms, installed_roms);
     }
 }
 
@@ -1297,41 +1299,82 @@ fn renderOverlay(
     ui_state: *const ui_mod.UiState,
     debugger_state: *const debugger_mod.DebuggerState,
     recent_roms: []const persistence.RecentRom,
+    installed_roms: []const models.InstalledRom,
 ) void {
     rl.drawRectangle(0, 0, ui.screen_w, ui.screen_h, rl.Color{ .r = 0, .g = 0, .b = 0, .a = 150 });
     const overlay = layout.PanelRect{
         .x = @max(@divTrunc(ui.screen_w - 520, 2), 24),
-        .y = @max(@divTrunc(ui.screen_h - 280, 2), 24),
+        .y = @max(@divTrunc(ui.screen_h - 320, 2), 24),
         .w = @min(520, ui.screen_w - 48),
-        .h = @min(280, ui.screen_h - 48),
+        .h = @min(320, ui.screen_h - 48),
     };
     drawPanel(overlay, "OVERLAY");
 
     switch (ui_state.overlay) {
-        .recent_roms => renderRecentRomOverlay(overlay, recent_roms, ui_state.recent_selection),
+        .recent_roms => renderRecentRomOverlay(overlay, recent_roms, installed_roms, ui_state.recent_selection),
         .save_slots => |mode| renderSlotOverlay(overlay, mode, ui_state.active_save_slot),
         .watch_edit => |edit| renderWatchEditOverlay(overlay, edit, debugger_state.selected_watch_slot),
         .none => {},
     }
 }
 
-fn renderRecentRomOverlay(panel: layout.PanelRect, recent_roms: []const persistence.RecentRom, selection: usize) void {
-    drawText(panel.x + 12, panel.y + layout.HEADER_H + 6, "RECENT ROMS  (Enter to load, Esc to close, drag/drop also works)", layout.FONT_SIZE_SMALL, TEXT_MID);
-    var cy = panel.y + layout.HEADER_H + 28;
-    if (recent_roms.len == 0) {
-        drawText(panel.x + 12, cy, "No recent ROMs yet.", layout.FONT_SIZE, TEXT_DIM);
-        return;
+fn isInstalledPathInRecents(recents: []const persistence.RecentRom, path: []const u8) bool {
+    for (recents) |r| {
+        if (std.mem.eql(u8, r.path, path)) return true;
     }
+    return false;
+}
 
-    for (recent_roms, 0..) |rom, idx| {
-        if (idx >= persistence.MAX_RECENT_ROMS) break;
-        const is_selected = idx == selection;
+fn renderRecentRomOverlay(
+    panel: layout.PanelRect,
+    recent_roms: []const persistence.RecentRom,
+    installed_roms: []const models.InstalledRom,
+    selection: usize,
+) void {
+    drawText(panel.x + 12, panel.y + layout.HEADER_H + 6, "ROM LIBRARY  (Enter to load, Esc to close, drag/drop also works)", layout.FONT_SIZE_SMALL, TEXT_MID);
+    var cy = panel.y + layout.HEADER_H + 28;
+    var cursor: usize = 0;
+
+    // Section: installed ROMs that aren't already in the recent list.
+    var any_installed = false;
+    for (installed_roms) |rom| {
+        if (isInstalledPathInRecents(recent_roms, rom.local.path)) continue;
+        if (!any_installed) {
+            drawText(panel.x + 12, cy, "INSTALLED", layout.FONT_SIZE_SMALL, TEXT_DIM);
+            cy += layout.LINE_H;
+            any_installed = true;
+        }
+        const is_selected = cursor == selection;
         if (is_selected) rl.drawRectangle(panel.x + 8, cy - 1, panel.w - 16, layout.LINE_H, HIGHLIGHT_CURRENT);
 
-        var line_buf: [128]u8 = undefined;
-        const line = std.fmt.bufPrint(&line_buf, "{d}. {s}", .{ idx + 1, rom.display_name }) catch rom.display_name;
+        const title = if (rom.metadata.chip8_db_entry) |e| e.title else rom.metadata.id;
+        var line_buf: [160]u8 = undefined;
+        const line = std.fmt.bufPrint(&line_buf, "* {s}  ({s})", .{ title, rom.metadata.id }) catch rom.metadata.id;
         drawTextFit(panel.x + 12, cy, panel.w - 24, line, layout.FONT_SIZE, if (is_selected) TEXT_BRIGHT else TEXT_MID);
         cy += layout.LINE_H;
+        cursor += 1;
+    }
+
+    // Section: recently-opened ROMs (by path).
+    if (recent_roms.len > 0) {
+        if (any_installed) cy += 6;
+        drawText(panel.x + 12, cy, "RECENT", layout.FONT_SIZE_SMALL, TEXT_DIM);
+        cy += layout.LINE_H;
+        for (recent_roms, 0..) |rom, idx| {
+            if (idx >= persistence.MAX_RECENT_ROMS) break;
+            const is_selected = cursor == selection;
+            if (is_selected) rl.drawRectangle(panel.x + 8, cy - 1, panel.w - 16, layout.LINE_H, HIGHLIGHT_CURRENT);
+
+            var line_buf: [128]u8 = undefined;
+            const line = std.fmt.bufPrint(&line_buf, "{d}. {s}", .{ idx + 1, rom.display_name }) catch rom.display_name;
+            drawTextFit(panel.x + 12, cy, panel.w - 24, line, layout.FONT_SIZE, if (is_selected) TEXT_BRIGHT else TEXT_MID);
+            cy += layout.LINE_H;
+            cursor += 1;
+        }
+    }
+
+    if (cursor == 0) {
+        drawText(panel.x + 12, cy, "No ROMs yet. Try `chip8 get <source>`.", layout.FONT_SIZE, TEXT_DIM);
     }
 }
 

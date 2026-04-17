@@ -621,7 +621,7 @@ test "Persistence save state envelope round-trips and rejects bad metadata" {
     chip8.memory[0x300] = 0xBB;
 
     const envelope = persistence.SaveStateEnvelope{
-        .rom_sha256 = [_]u8{0x11} ** 32,
+        .rom_sha1 = [_]u8{0x11} ** 20,
         .quirk_profile = .vip_legacy,
         .chip8_state = chip8.snapshot(),
         .cpu_hz_target = 720,
@@ -808,7 +808,7 @@ test "Annotated assembly export includes header, labels, comments, and line mapp
 
     var exported = try assembly.exportAnnotatedSource(std.testing.allocator, .{
         .rom_name = "test.ch8",
-        .sha256_hex = "deadbeef",
+        .sha1_hex = "deadbeef",
         .profile = .modern,
     }, &rom);
     defer exported.deinit(std.testing.allocator);
@@ -848,7 +848,7 @@ test "Assembler round-trips annotated export back to identical ROM bytes" {
 
     var exported = try assembly.exportAnnotatedSource(std.testing.allocator, .{
         .rom_name = "roundtrip.ch8",
-        .sha256_hex = "bead",
+        .sha1_hex = "bead",
         .profile = .modern,
     }, &rom);
     defer exported.deinit(std.testing.allocator);

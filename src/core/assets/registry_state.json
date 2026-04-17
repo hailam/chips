@@ -1,0 +1,1999 @@
+{
+  "registries": {
+    "earnest": {
+      "repo": "JohnEarnest/chip8Archive",
+      "last_synced": 1776459926607,
+      "entries": [
+        {
+          "path": "roms/1dcell.ch8",
+          "git_sha": "2fd5ba683387ab2a1b24c51889a527eaed218ce3",
+          "sha1": "018442698067c95d67e27a94e6642c11f049f108",
+          "size": 150,
+          "chip8_db_hash": "018442698067c95d67e27a94e6642c11f049f108"
+        },
+        {
+          "path": "roms/8ceattourny_d1.ch8",
+          "git_sha": "bbf9353fb7b001275d886552deb09bfa0721aaf4",
+          "sha1": "3ddf7b76b8f63d0089e00e3b518f78c213b74b1e",
+          "size": 2480,
+          "chip8_db_hash": "3ddf7b76b8f63d0089e00e3b518f78c213b74b1e"
+        },
+        {
+          "path": "roms/8ceattourny_d2.ch8",
+          "git_sha": "5416c0e0ee3751a8021d36dd48fc50ff26a73f58",
+          "sha1": "82fd0d202a068bedfb869fc303fdeae0c814024f",
+          "size": 2591,
+          "chip8_db_hash": "82fd0d202a068bedfb869fc303fdeae0c814024f"
+        },
+        {
+          "path": "roms/8ceattourny_d3.ch8",
+          "git_sha": "af79437e064008fbc216bda7c3c6b0e666c011b8",
+          "sha1": "419a0110d41332457c15ae09fff62cbd7ad197fc",
+          "size": 2285,
+          "chip8_db_hash": "419a0110d41332457c15ae09fff62cbd7ad197fc"
+        },
+        {
+          "path": "roms/BadKaiJuJu.ch8",
+          "git_sha": "6a83f93406e1cc9fd0afe4ce851fdb02e67b3ac6",
+          "sha1": "0f479a10fec51d159866e5760069cd18bdfd293f",
+          "size": 346,
+          "chip8_db_hash": "0f479a10fec51d159866e5760069cd18bdfd293f"
+        },
+        {
+          "path": "roms/DVN8.ch8",
+          "git_sha": "4b068e831c794af878d7068baa3f4ce5102aab4b",
+          "sha1": "627f01b20ce4d33f6df1aa88acb405a3a732bde0",
+          "size": 3340,
+          "chip8_db_hash": "627f01b20ce4d33f6df1aa88acb405a3a732bde0"
+        },
+        {
+          "path": "roms/OctoPartyMix.ch8",
+          "git_sha": "238ae2326f69f71a48e97579cf9430cc9dfe85dc",
+          "sha1": "d52c2f85f56c963ff5e48a096afc61d3c8a71c11",
+          "size": 3790,
+          "chip8_db_hash": "d52c2f85f56c963ff5e48a096afc61d3c8a71c11"
+        },
+        {
+          "path": "roms/RPS.ch8",
+          "git_sha": "3ea42d4eeb79ee26cfe187f4faebe0c7088aaa63",
+          "sha1": "a6f3ac2d89cdc1d7b22013301863bad6a4fb7318",
+          "size": 2017,
+          "chip8_db_hash": "a6f3ac2d89cdc1d7b22013301863bad6a4fb7318"
+        },
+        {
+          "path": "roms/anEveningToDieFor.ch8",
+          "git_sha": "d102a122de3cc055c59c49e33c19261ad3698527",
+          "sha1": "afd9fee7565c54970b6bd7758aa8aa7843dd2e86",
+          "size": 23207,
+          "chip8_db_hash": "afd9fee7565c54970b6bd7758aa8aa7843dd2e86"
+        },
+        {
+          "path": "roms/applejak.ch8",
+          "git_sha": "194155935766f532c7fc68317f389fe9eeec6c8e",
+          "sha1": "bcbf36a68cf389e87dd54a9707cf35c4436dcb92",
+          "size": 3580,
+          "chip8_db_hash": "bcbf36a68cf389e87dd54a9707cf35c4436dcb92"
+        },
+        {
+          "path": "roms/binding.ch8",
+          "git_sha": "fb2e6d6a87ee4a37f08acb59f771da97bb5a8d28",
+          "sha1": "e74f20f234753e0cc2f58e29dc02d6128a6a3d97",
+          "size": 3552,
+          "chip8_db_hash": "e74f20f234753e0cc2f58e29dc02d6128a6a3d97"
+        },
+        {
+          "path": "roms/blackrainbow.ch8",
+          "git_sha": "3f21930f8f8f62107962cd4c34c18c8176f6ec99",
+          "sha1": "e6af47843f0ecc3302027a3756dd7b389a15e437",
+          "size": 3302,
+          "chip8_db_hash": "e6af47843f0ecc3302027a3756dd7b389a15e437"
+        },
+        {
+          "path": "roms/br8kout.ch8",
+          "git_sha": "7e675f02405c4d5b99068f0e84de304cf53135d7",
+          "sha1": "31fc1c53cc610a9f4b9c5705c5a0f33fc028d123",
+          "size": 199,
+          "chip8_db_hash": "31fc1c53cc610a9f4b9c5705c5a0f33fc028d123"
+        },
+        {
+          "path": "roms/bulb.ch8",
+          "git_sha": "1a6482665fe3ccfb3989c69834e937936c3f3339",
+          "sha1": "b277c053b5b4ff9e40cd52cd4125a35ec22ccd0a",
+          "size": 3264,
+          "chip8_db_hash": "b277c053b5b4ff9e40cd52cd4125a35ec22ccd0a"
+        },
+        {
+          "path": "roms/businessiscontagious.ch8",
+          "git_sha": "2be8cbaef456aab3540538779c1304ed9d2bc881",
+          "sha1": "33ec2f3081bed56438dc207477f06cd77f3f07d9",
+          "size": 16707,
+          "chip8_db_hash": "33ec2f3081bed56438dc207477f06cd77f3f07d9"
+        },
+        {
+          "path": "roms/carbon8.ch8",
+          "git_sha": "93c59dbc4d13c109b48cefc785571c91f655ea54",
+          "sha1": "2e0f2268c9a3be0fbb839f918336f161815bb80a",
+          "size": 2297,
+          "chip8_db_hash": "2e0f2268c9a3be0fbb839f918336f161815bb80a"
+        },
+        {
+          "path": "roms/caveexplorer.ch8",
+          "git_sha": "7e217a25ff2f10da52ea7354d875e7e78685a1d1",
+          "sha1": "400dbd1aa2b79b9b8546bc615bfb735c1bd1d268",
+          "size": 3299,
+          "chip8_db_hash": "400dbd1aa2b79b9b8546bc615bfb735c1bd1d268"
+        },
+        {
+          "path": "roms/chickenScratch.ch8",
+          "git_sha": "31b3f4ae5b20a29fae9cc54048c18c72e3c913ca",
+          "sha1": "c606d52970b86edcca4e87e9f6fae4b1ccbbbb0f",
+          "size": 17024,
+          "chip8_db_hash": "c606d52970b86edcca4e87e9f6fae4b1ccbbbb0f"
+        },
+        {
+          "path": "roms/chipcross.ch8",
+          "git_sha": "f19a3f1e1e00644bb9588df79b85b4a53ed45009",
+          "sha1": "83300ff710acdd8417376b88adf40f68171f7ec7",
+          "size": 800,
+          "chip8_db_hash": "83300ff710acdd8417376b88adf40f68171f7ec7"
+        },
+        {
+          "path": "roms/chipquarium.ch8",
+          "git_sha": "54759b65824314e4d7ac047c1d9993a633aae9ed",
+          "sha1": "f4392681b1fa38d7ad0a7d7a59cecf247ac1457a",
+          "size": 1748,
+          "chip8_db_hash": "f4392681b1fa38d7ad0a7d7a59cecf247ac1457a"
+        },
+        {
+          "path": "roms/chipwar.ch8",
+          "git_sha": "5357fa95ec30c193bfe070b650a578268f00844b",
+          "sha1": "ab5cbf267d74c168e174041b9594ae856cbd671d",
+          "size": 1777,
+          "chip8_db_hash": "ab5cbf267d74c168e174041b9594ae856cbd671d"
+        },
+        {
+          "path": "roms/civiliz8n.ch8",
+          "git_sha": "39497e95b567eb1fa6facc65929003f80946f4d5",
+          "sha1": "76a770000b314659ac792e17724b783a464ab67e",
+          "size": 5114,
+          "chip8_db_hash": "76a770000b314659ac792e17724b783a464ab67e"
+        },
+        {
+          "path": "roms/danm8ku.ch8",
+          "git_sha": "0f45e5ce0bb63c6be33485a158dcf17cd208b28c",
+          "sha1": "ff6b8ac59bf281cd4b5ab6e161600b00f85a0265",
+          "size": 1319,
+          "chip8_db_hash": "ff6b8ac59bf281cd4b5ab6e161600b00f85a0265"
+        },
+        {
+          "path": "roms/dodge.ch8",
+          "git_sha": "11cfff7cb59b6a6747f4926459b638489848a97f",
+          "sha1": "7fb69647e6b10e2b12f9357d5c1c177349028236",
+          "size": 56,
+          "chip8_db_hash": "7fb69647e6b10e2b12f9357d5c1c177349028236"
+        },
+        {
+          "path": "roms/down8.ch8",
+          "git_sha": "47fda3873d8b48b7bfbd42f8e80fc63d46e38ec0",
+          "sha1": "1368d7eae124661aacaf3411819ca9c113c0c10c",
+          "size": 1610,
+          "chip8_db_hash": "1368d7eae124661aacaf3411819ca9c113c0c10c"
+        },
+        {
+          "path": "roms/eaty.ch8",
+          "git_sha": "2063bc78f76d5df024e10be0530048355b204739",
+          "sha1": "fcaa793332a83c93f4ed79f5ffbc8403c8b8aea0",
+          "size": 3431,
+          "chip8_db_hash": "fcaa793332a83c93f4ed79f5ffbc8403c8b8aea0"
+        },
+        {
+          "path": "roms/expedition.ch8",
+          "git_sha": "f92331dff2fc5317b0c52e0da11231ecde69aa8c",
+          "sha1": "77dc518e6779ccd862205cfeb0f3f7772caed60e",
+          "size": 31543,
+          "chip8_db_hash": "77dc518e6779ccd862205cfeb0f3f7772caed60e"
+        },
+        {
+          "path": "roms/flightrunner.ch8",
+          "git_sha": "b379353df5f48e63828b7676faa6ac4125b15cb6",
+          "sha1": "821751787374cc362f4c58759961f0aa7a2fd410",
+          "size": 295,
+          "chip8_db_hash": "821751787374cc362f4c58759961f0aa7a2fd410"
+        },
+        {
+          "path": "roms/flutterby.ch8",
+          "git_sha": "e8d1585e4e914b79c1eb442f610c9ef2a1107aa0",
+          "sha1": "a4a9351775b2a64bbd14e3980968db19c254a988",
+          "size": 760,
+          "chip8_db_hash": "a4a9351775b2a64bbd14e3980968db19c254a988"
+        },
+        {
+          "path": "roms/fuse.ch8",
+          "git_sha": "5ba104d9fe7bf74f0c98f868dfa28e67974c3941",
+          "sha1": "0cd895dc3d489d0e40656218900a04310e95f560",
+          "size": 424,
+          "chip8_db_hash": "0cd895dc3d489d0e40656218900a04310e95f560"
+        },
+        {
+          "path": "roms/garlicscape.ch8",
+          "git_sha": "ce5c1d5a27727f24b1d1313059aa7f418af78a51",
+          "sha1": "b693e60f161e69c98b0bb2bc1761cf434f8fbb0e",
+          "size": 8947,
+          "chip8_db_hash": "b693e60f161e69c98b0bb2bc1761cf434f8fbb0e"
+        },
+        {
+          "path": "roms/ghostEscape.ch8",
+          "git_sha": "fef783558d99791e5e0a83f2a32b1a1ba72d31b3",
+          "sha1": "1e3be162480380b6276d0848e1c71576b4c041f2",
+          "size": 135,
+          "chip8_db_hash": "1e3be162480380b6276d0848e1c71576b4c041f2"
+        },
+        {
+          "path": "roms/glitchGhost.ch8",
+          "git_sha": "b5e14e119e29c8218185aa8987d64ebf456546fc",
+          "sha1": "2cdcb3c29a5f013a991db5909ca8e18e27b3c42b",
+          "size": 2907,
+          "chip8_db_hash": "2cdcb3c29a5f013a991db5909ca8e18e27b3c42b"
+        },
+        {
+          "path": "roms/gradsim.ch8",
+          "git_sha": "bb4fdcd100b4e4cffb2ec2175183de350453cef4",
+          "sha1": "9797a7eaf1e80ec19c085c60bb37991420f54678",
+          "size": 1326,
+          "chip8_db_hash": "9797a7eaf1e80ec19c085c60bb37991420f54678"
+        },
+        {
+          "path": "roms/horseWorldOnline.ch8",
+          "git_sha": "74606a335d97b7bd69bdd3dc8b5f178f266088f4",
+          "sha1": "28ac3467fbb4544a3e3a1ec3cd27d9e819ac7323",
+          "size": 732,
+          "chip8_db_hash": "28ac3467fbb4544a3e3a1ec3cd27d9e819ac7323"
+        },
+        {
+          "path": "roms/horseyJump.ch8",
+          "git_sha": "4dc09e7d43653714ab4ea613f251613afe078ff3",
+          "sha1": "df5ced9c20d00bf7be7d3361d76f27d0d577abfb",
+          "size": 326,
+          "chip8_db_hash": "df5ced9c20d00bf7be7d3361d76f27d0d577abfb"
+        },
+        {
+          "path": "roms/jub8-1.ch8",
+          "git_sha": "8eb4c4d283daaebcc22172e338eade79c1d620fa",
+          "sha1": "ab36ced6e34affacd57b2874ede3f95b669a424c",
+          "size": 56380,
+          "chip8_db_hash": "ab36ced6e34affacd57b2874ede3f95b669a424c"
+        },
+        {
+          "path": "roms/jub8-2.ch8",
+          "git_sha": "82e69dcf52fb361a0f79701ee6c4ddf35b69f064",
+          "sha1": "12e053d66be67836deff1c07af93fe1d33a8eec5",
+          "size": 65024,
+          "chip8_db_hash": "12e053d66be67836deff1c07af93fe1d33a8eec5"
+        },
+        {
+          "path": "roms/jub8-3.ch8",
+          "git_sha": "e6ff7861861f267e562b6be397107742043161b7",
+          "sha1": "9bf96e23963995c6d702ae21c9b8741cbb688f47",
+          "size": 58566,
+          "chip8_db_hash": "9bf96e23963995c6d702ae21c9b8741cbb688f47"
+        },
+        {
+          "path": "roms/jub8-4.ch8",
+          "git_sha": "0b2b77b784d933350ce77cb2ceb04f86776a84e2",
+          "sha1": "7e8d5a79cabeb9a791524ea7126867a539d825ee",
+          "size": 59904,
+          "chip8_db_hash": "7e8d5a79cabeb9a791524ea7126867a539d825ee"
+        },
+        {
+          "path": "roms/jub8-5.ch8",
+          "git_sha": "843b1e17ede8efee4903d174a6b2ac8606541f12",
+          "sha1": "b274ab30ed7678400dc2283431a45f7d98d9fced",
+          "size": 62376,
+          "chip8_db_hash": "b274ab30ed7678400dc2283431a45f7d98d9fced"
+        },
+        {
+          "path": "roms/jub8-6.ch8",
+          "git_sha": "158f4b34c8a58071cee00201a9c6de08f5995bfb",
+          "sha1": "3fd62ae2bfe2572ceb194f1d3d1bd5a01695b86c",
+          "size": 59273,
+          "chip8_db_hash": "3fd62ae2bfe2572ceb194f1d3d1bd5a01695b86c"
+        },
+        {
+          "path": "roms/keshaWasBiird.ch8",
+          "git_sha": "9f4b19d0aa7119d93b3b1f0f9c9227e91e8e8e64",
+          "sha1": "92a325c36ad2116a5256946b8bf711ed9befd319",
+          "size": 65000,
+          "chip8_db_hash": "92a325c36ad2116a5256946b8bf711ed9befd319"
+        },
+        {
+          "path": "roms/keshaWasBird.ch8",
+          "git_sha": "c578afcd932b436e91f5723f88696081bbe645f6",
+          "sha1": "fbc7711ad068015b957e91d8714636b2ac90d9cb",
+          "size": 60000,
+          "chip8_db_hash": "fbc7711ad068015b957e91d8714636b2ac90d9cb"
+        },
+        {
+          "path": "roms/keshaWasNiiinja.ch8",
+          "git_sha": "21d6c76adc676b22f8c699dbec17c7ab834fc870",
+          "sha1": "4564a1bf149e5ab9777d33813a92cfd6ffc7a0bb",
+          "size": 39000,
+          "chip8_db_hash": "4564a1bf149e5ab9777d33813a92cfd6ffc7a0bb"
+        },
+        {
+          "path": "roms/knight.ch8",
+          "git_sha": "d46bd6c2bd619ec357bfbbcc07c1c323b4b32425",
+          "sha1": "fcecf90496dadd214486a7a769e3a07f2b8f4eab",
+          "size": 2684,
+          "chip8_db_hash": "fcecf90496dadd214486a7a769e3a07f2b8f4eab"
+        },
+        {
+          "path": "roms/knumberknower.ch8",
+          "git_sha": "f80e65ec051bb296300b501d887a865ff396aa88",
+          "sha1": "95f4af2d410c1acfd1b0657721a870a57c55b49b",
+          "size": 3220,
+          "chip8_db_hash": "95f4af2d410c1acfd1b0657721a870a57c55b49b"
+        },
+        {
+          "path": "roms/masquer8.ch8",
+          "git_sha": "6001620392d9efe3d7f3cc5abb5359320c33c11b",
+          "sha1": "fb48e162c7f2e8853909acc5534b55fb55030f9f",
+          "size": 3166,
+          "chip8_db_hash": "fb48e162c7f2e8853909acc5534b55fb55030f9f"
+        },
+        {
+          "path": "roms/mastermind.ch8",
+          "git_sha": "36759e633af8539a09ee2ac38098e945f1adb9b9",
+          "sha1": "898ef1505c874065697ffc6cba688367e143d82e",
+          "size": 2853,
+          "chip8_db_hash": "898ef1505c874065697ffc6cba688367e143d82e"
+        },
+        {
+          "path": "roms/mini-lights-out.ch8",
+          "git_sha": "12da84d518ce962571be841f4a15d3ead7444bf3",
+          "sha1": "a3f0eae99964b873eb1adbd3e8bcb90d15f762c3",
+          "size": 563,
+          "chip8_db_hash": "a3f0eae99964b873eb1adbd3e8bcb90d15f762c3"
+        },
+        {
+          "path": "roms/mondrian.ch8",
+          "git_sha": "14ec599d7dc79753a3c7aeee662aa056a94a5a99",
+          "sha1": "63e787fc3e78e5fb3a394cf1bc654ad9633d8907",
+          "size": 117,
+          "chip8_db_hash": "63e787fc3e78e5fb3a394cf1bc654ad9633d8907"
+        },
+        {
+          "path": "roms/nokiatemplate.ch8",
+          "git_sha": "c4db65fb0f16830d8f8f72996a7762d377995bb4",
+          "sha1": "61931487c694c5bc6978ae22c0a36aca5a647e24",
+          "size": 290,
+          "chip8_db_hash": "61931487c694c5bc6978ae22c0a36aca5a647e24"
+        },
+        {
+          "path": "roms/octoachip8story.ch8",
+          "git_sha": "4be77cb54fc90be0bec1ad8d4565a0e0e42c26f6",
+          "sha1": "39970ccfd3a3f00180d53464d4fd7862193eaf0f",
+          "size": 3581,
+          "chip8_db_hash": "39970ccfd3a3f00180d53464d4fd7862193eaf0f"
+        },
+        {
+          "path": "roms/octogon.ch8",
+          "git_sha": "e78ff314e3f7f9c5cd4e386af20e5ea64b738f74",
+          "sha1": "bb1e786cb921f51d0540cca9a216c0b72bceb443",
+          "size": 3581,
+          "chip8_db_hash": "bb1e786cb921f51d0540cca9a216c0b72bceb443"
+        },
+        {
+          "path": "roms/octojam10title.ch8",
+          "git_sha": "aea7bdac7d6e6d21bceb23f6b2e208c0f6c9865f",
+          "sha1": "1dda7d92450c8eee2753a9350a1a0d524b1019b4",
+          "size": 1890,
+          "chip8_db_hash": "1dda7d92450c8eee2753a9350a1a0d524b1019b4"
+        },
+        {
+          "path": "roms/octojam1title.ch8",
+          "git_sha": "7e8dd9fbf4699228237dcb8f6ec765dc732863fb",
+          "sha1": "f26993a4afd5cda2fea19935773fd3db54866623",
+          "size": 426,
+          "chip8_db_hash": "f26993a4afd5cda2fea19935773fd3db54866623"
+        },
+        {
+          "path": "roms/octojam2title.ch8",
+          "git_sha": "6e19074790fe94742e8594b6b109d4946c38d9dc",
+          "sha1": "11c68038d64a09be549a6c1e50724808914d8991",
+          "size": 1240,
+          "chip8_db_hash": "11c68038d64a09be549a6c1e50724808914d8991"
+        },
+        {
+          "path": "roms/octojam3title.ch8",
+          "git_sha": "31f9dabeb1271d4b9abda2b931407f5666338b3a",
+          "sha1": "493c76b9d9252e1d349d408d341daff5267f35fa",
+          "size": 402,
+          "chip8_db_hash": "493c76b9d9252e1d349d408d341daff5267f35fa"
+        },
+        {
+          "path": "roms/octojam4title.ch8",
+          "git_sha": "202721da796d4f954e63da831767837c86f7c186",
+          "sha1": "9f55f7abc8f2bc4b59a01515f1d887a6568a8ab4",
+          "size": 472,
+          "chip8_db_hash": "9f55f7abc8f2bc4b59a01515f1d887a6568a8ab4"
+        },
+        {
+          "path": "roms/octojam5title.ch8",
+          "git_sha": "cb65447a9257ba35afc610f895e52856bbdd1bac",
+          "sha1": "d6d8efef811350e7fba6197024c4973b360749b8",
+          "size": 192,
+          "chip8_db_hash": "d6d8efef811350e7fba6197024c4973b360749b8"
+        },
+        {
+          "path": "roms/octojam6title.ch8",
+          "git_sha": "a66c8ab1ade5aa2d29bb99c8765efd1074e6d596",
+          "sha1": "18aef6d2d3b560681038d0dda2273d780dc1daa5",
+          "size": 1316,
+          "chip8_db_hash": "18aef6d2d3b560681038d0dda2273d780dc1daa5"
+        },
+        {
+          "path": "roms/octojam7title.ch8",
+          "git_sha": "5ef5fc32b97ddf2105adbb51b853635730ef60b1",
+          "sha1": "9a9c341571ace516c9789b1eb92590833af13239",
+          "size": 1784,
+          "chip8_db_hash": "9a9c341571ace516c9789b1eb92590833af13239"
+        },
+        {
+          "path": "roms/octojam8title.ch8",
+          "git_sha": "5c1c98982d1616a9592bcaf85624d9eb09cb783b",
+          "sha1": "959ed7d6b61e667bb59d1b497401258463f88454",
+          "size": 444,
+          "chip8_db_hash": "959ed7d6b61e667bb59d1b497401258463f88454"
+        },
+        {
+          "path": "roms/octojam9title.ch8",
+          "git_sha": "8a4350b1c671f4d67b080e6c65eea3a40e4424e4",
+          "sha1": "5a6366decb08df66da8bd685b497ccce0884c307",
+          "size": 690,
+          "chip8_db_hash": "5a6366decb08df66da8bd685b497ccce0884c307"
+        },
+        {
+          "path": "roms/octoma.ch8",
+          "git_sha": "cbf4a78c8f5a4a7f52783c9034b449bf987677a1",
+          "sha1": "80feda2028aa31788d3d1d9e062d77d2fd9308cc",
+          "size": 9201,
+          "chip8_db_hash": "80feda2028aa31788d3d1d9e062d77d2fd9308cc"
+        },
+        {
+          "path": "roms/octopaint.ch8",
+          "git_sha": "310e3787ae7fca9162215a1a5254a930b47c2567",
+          "sha1": "33abb5f1ba7db3166636911c6cfa81a5ce5b861c",
+          "size": 236,
+          "chip8_db_hash": "33abb5f1ba7db3166636911c6cfa81a5ce5b861c"
+        },
+        {
+          "path": "roms/octopeg.ch8",
+          "git_sha": "6aad928f46e9f9d39c2c66f28ee8ab07ae66b273",
+          "sha1": "7a4a89870f2ab23c28024dd1c3dd52cf1af1ad00",
+          "size": 3512,
+          "chip8_db_hash": "7a4a89870f2ab23c28024dd1c3dd52cf1af1ad00"
+        },
+        {
+          "path": "roms/octorancher.ch8",
+          "git_sha": "198ad937fc9baf2f37250bb5521a426776ad84b1",
+          "sha1": "8263bac7d98d94097171f0a5dc6f210f77543080",
+          "size": 3284,
+          "chip8_db_hash": "8263bac7d98d94097171f0a5dc6f210f77543080"
+        },
+        {
+          "path": "roms/octovore.ch8",
+          "git_sha": "a445f81ab38a3a51f7a0b6c3d0401a874053a2c2",
+          "sha1": "74936ffb0db233c722f5a39932d75240b6437a72",
+          "size": 3549,
+          "chip8_db_hash": "74936ffb0db233c722f5a39932d75240b6437a72"
+        },
+        {
+          "path": "roms/ordinaryidlegarden.ch8",
+          "git_sha": "2148ad72061e022ff43187c3272b70152e3369f9",
+          "sha1": "f9d0bdf4a80d5570a9af9fd13769e528dff411df",
+          "size": 4713,
+          "chip8_db_hash": "f9d0bdf4a80d5570a9af9fd13769e528dff411df"
+        },
+        {
+          "path": "roms/outlaw.ch8",
+          "git_sha": "71eff287e8df12b216020da8fc93d2687ea8b055",
+          "sha1": "a9d3c975a5e733646a04f6e61deebcd0ad50f700",
+          "size": 512,
+          "chip8_db_hash": "a9d3c975a5e733646a04f6e61deebcd0ad50f700"
+        },
+        {
+          "path": "roms/petdog.ch8",
+          "git_sha": "8646ef154c5d9703c70fbb9b37690bddf26a43dc",
+          "sha1": "3be683d1ac0b27ae47a09984e420853fff0b7e0d",
+          "size": 1869,
+          "chip8_db_hash": "3be683d1ac0b27ae47a09984e420853fff0b7e0d"
+        },
+        {
+          "path": "roms/piper.ch8",
+          "git_sha": "38adaa8a7dcf7bdd63d4694ada5199d8a7866cba",
+          "sha1": "7da3eba52a8d8025ddf14ee40d28f151585529a0",
+          "size": 1588,
+          "chip8_db_hash": "7da3eba52a8d8025ddf14ee40d28f151585529a0"
+        },
+        {
+          "path": "roms/pumpkindressup.ch8",
+          "git_sha": "d06699208ea1d78b66720bff47fbb1b88f928e9f",
+          "sha1": "b2abb5312f0ad28421c1190a65a73d98d4ebf401",
+          "size": 1374,
+          "chip8_db_hash": "b2abb5312f0ad28421c1190a65a73d98d4ebf401"
+        },
+        {
+          "path": "roms/redOctober.ch8",
+          "git_sha": "f68159043de4b82a590d89acb1dd4d9f6350b999",
+          "sha1": "e14350d3b19443e5ad2848172bef9719a8680b01",
+          "size": 65000,
+          "chip8_db_hash": "e14350d3b19443e5ad2848172bef9719a8680b01"
+        },
+        {
+          "path": "roms/rockto.ch8",
+          "git_sha": "f7fa84e5ffa135d81e311bd88c317f8ece996be4",
+          "sha1": "b76fbca2ec089c7e77f4a2f754db37854b99debc",
+          "size": 1594,
+          "chip8_db_hash": "b76fbca2ec089c7e77f4a2f754db37854b99debc"
+        },
+        {
+          "path": "roms/sens8tion.ch8",
+          "git_sha": "cc002b37188b52bef829bec452c490d4d2e80b57",
+          "sha1": "58f7ce407aedf456dc8992342f4a6f9f0647383b",
+          "size": 3575,
+          "chip8_db_hash": "58f7ce407aedf456dc8992342f4a6f9f0647383b"
+        },
+        {
+          "path": "roms/sk8.ch8",
+          "git_sha": "9caecc4f496468ef60fa1e95586e46c339f914a6",
+          "sha1": "1b6dcf8c02ea0b89a4f04ce28e7c39a5e7a513d6",
+          "size": 3413,
+          "chip8_db_hash": "1b6dcf8c02ea0b89a4f04ce28e7c39a5e7a513d6"
+        },
+        {
+          "path": "roms/skyward.ch8",
+          "git_sha": "e6e7d26c14bdc5257f1882bcc60e936573db8193",
+          "sha1": "8ebf74e790e58a8d5a7beff598bb32ed7eeeabf7",
+          "size": 55226,
+          "chip8_db_hash": "8ebf74e790e58a8d5a7beff598bb32ed7eeeabf7"
+        },
+        {
+          "path": "roms/slipperyslope.ch8",
+          "git_sha": "d4f20f5d38839ede3a0a1027e8c5fca1121eb40a",
+          "sha1": "9d834860f455aec7e95fb886984497e5be501610",
+          "size": 2482,
+          "chip8_db_hash": "9d834860f455aec7e95fb886984497e5be501610"
+        },
+        {
+          "path": "roms/snake.ch8",
+          "git_sha": "5f83c16807965ce1f250774f2ba9bfbb37141c38",
+          "sha1": "06a6692c92eb8077329b6d4e59d55479d60574a8",
+          "size": 1438,
+          "chip8_db_hash": "06a6692c92eb8077329b6d4e59d55479d60574a8"
+        },
+        {
+          "path": "roms/snek.ch8",
+          "git_sha": "ad5b7f19fd762c8f027783764978fe71cd9ece39",
+          "sha1": "bb5740042385cae10724b051208bb95e5341f56d",
+          "size": 65,
+          "chip8_db_hash": "bb5740042385cae10724b051208bb95e5341f56d"
+        },
+        {
+          "path": "roms/spacejam.ch8",
+          "git_sha": "7b444a949a3a5700f4a75f00b0f38044717dbee5",
+          "sha1": "9f9a4affbf7afd70bb594fb321e16579318c0164",
+          "size": 1490,
+          "chip8_db_hash": "9f9a4affbf7afd70bb594fb321e16579318c0164"
+        },
+        {
+          "path": "roms/spaceracer.ch8",
+          "git_sha": "fafafca8e3af4a311c506ab127c34c27d6777819",
+          "sha1": "659cb966e976fcbcae76f6a8a07c65be4d18aae8",
+          "size": 2270,
+          "chip8_db_hash": "659cb966e976fcbcae76f6a8a07c65be4d18aae8"
+        },
+        {
+          "path": "roms/spockpaperscissors.ch8",
+          "git_sha": "bf6571869ef30a21093212f6fdff1b25753a9f1f",
+          "sha1": "b66f55f83eb264d2b73c0b4ac81ea5044bf73138",
+          "size": 1348,
+          "chip8_db_hash": "b66f55f83eb264d2b73c0b4ac81ea5044bf73138"
+        },
+        {
+          "path": "roms/squad.ch8",
+          "git_sha": "e3a520da9aef2d7a19fb11fd5c47af421751954d",
+          "sha1": "abfce04ddd0f72838dd887f3db3106066fd675b3",
+          "size": 2577,
+          "chip8_db_hash": "abfce04ddd0f72838dd887f3db3106066fd675b3"
+        },
+        {
+          "path": "roms/sub8.ch8",
+          "git_sha": "fe515e60cbbe00825c4073cb18dfbcf078cee7f4",
+          "sha1": "64536d549c986e9edf25de9fa89db60d2ade85c0",
+          "size": 3579,
+          "chip8_db_hash": "64536d549c986e9edf25de9fa89db60d2ade85c0"
+        },
+        {
+          "path": "roms/superOctoTrackXO.ch8",
+          "git_sha": "c8325897507c8e04f5f10be7f41d3e8f6cfd1689",
+          "sha1": "a98ed56f88f11156871d871d9200fc4bb45190a4",
+          "size": 2535,
+          "chip8_db_hash": "a98ed56f88f11156871d871d9200fc4bb45190a4"
+        },
+        {
+          "path": "roms/superneatboy.ch8",
+          "git_sha": "b667ab4195017be4c5a6dd548104a10877966140",
+          "sha1": "440c5fbe9f5f840e76c308738fb0d37772d66674",
+          "size": 10084,
+          "chip8_db_hash": "440c5fbe9f5f840e76c308738fb0d37772d66674"
+        },
+        {
+          "path": "roms/superpong.ch8",
+          "git_sha": "12871807b00e80e1502d7f778b27dd0e1e9c6a50",
+          "sha1": "2c761f70a44e521ee848834cfdd2bd1646157d29",
+          "size": 595,
+          "chip8_db_hash": "2c761f70a44e521ee848834cfdd2bd1646157d29"
+        },
+        {
+          "path": "roms/supersquare.ch8",
+          "git_sha": "b1f421116f83972db4789bf97a2ac31fdc4e95c6",
+          "sha1": "9f7cf6fe0025878c26b317160c57edd06b3361ba",
+          "size": 1569,
+          "chip8_db_hash": "9f7cf6fe0025878c26b317160c57edd06b3361ba"
+        },
+        {
+          "path": "roms/sweetcopter.ch8",
+          "git_sha": "d5279b79ee3505305504cb6ef486d6c6b0de85c5",
+          "sha1": "531c44e8204d8ab8c078bad36e34067baddfccdb",
+          "size": 409,
+          "chip8_db_hash": "531c44e8204d8ab8c078bad36e34067baddfccdb"
+        },
+        {
+          "path": "roms/t8nks.ch8",
+          "git_sha": "083c3b54c0401fe707279f6d668f46cc385c766d",
+          "sha1": "8b2fc2e08830b8a9e604d11c9b319e2cc0a581b3",
+          "size": 33005,
+          "chip8_db_hash": "8b2fc2e08830b8a9e604d11c9b319e2cc0a581b3"
+        },
+        {
+          "path": "roms/tank.ch8",
+          "git_sha": "6525b62f5140adcb49c409d0bfb26ac809519e92",
+          "sha1": "3f9ef8dec999574a188ec3b9615cff9888283c85",
+          "size": 1993,
+          "chip8_db_hash": "3f9ef8dec999574a188ec3b9615cff9888283c85"
+        },
+        {
+          "path": "roms/tombstontipp.ch8",
+          "git_sha": "6e785c89bd0aef37a05adf7cfb12be0cb340ef94",
+          "sha1": "6e7cb52ec99e10f934b76eaf3fddeb8f2e2e14e1",
+          "size": 492,
+          "chip8_db_hash": "6e7cb52ec99e10f934b76eaf3fddeb8f2e2e14e1"
+        },
+        {
+          "path": "roms/trucksimul8or.ch8",
+          "git_sha": "6c8c55323aec6784a262898db8cce87334faf83b",
+          "sha1": "19279f8cfbb58a925a80b52e690ad71ee0907134",
+          "size": 2404,
+          "chip8_db_hash": "19279f8cfbb58a925a80b52e690ad71ee0907134"
+        },
+        {
+          "path": "roms/turnover77.ch8",
+          "git_sha": "7a2fbd7b97fe0dc168a8fd47cc4a9a6a03e9aaa4",
+          "sha1": "d03f27f85a1cf68465e0853cc0c4abee4a94a4e5",
+          "size": 2144,
+          "chip8_db_hash": "d03f27f85a1cf68465e0853cc0c4abee4a94a4e5"
+        },
+        {
+          "path": "roms/ultimatetictactoe.ch8",
+          "git_sha": "2280f8d9ba5e1de70e51ec403fb17db877caf583",
+          "sha1": "12572c9e957cace53076d1656ea1b12cd0f331af",
+          "size": 1596,
+          "chip8_db_hash": "12572c9e957cace53076d1656ea1b12cd0f331af"
+        },
+        {
+          "path": "roms/wdl.ch8",
+          "git_sha": "c04234eb33ced2b3d3cc698b7069e92e19f0678a",
+          "sha1": "a8d6e9b1976c99ddc0c4818828a6d3cb3ae6f348",
+          "size": 2905,
+          "chip8_db_hash": "a8d6e9b1976c99ddc0c4818828a6d3cb3ae6f348"
+        },
+        {
+          "path": "roms/wonkypong.ch8",
+          "git_sha": "3f9147aeabe39eff52504baf1c14853a3c521c41",
+          "sha1": "518c1d40f5d768ee49d2b7951d998588ef8238ba",
+          "size": 538,
+          "chip8_db_hash": "518c1d40f5d768ee49d2b7951d998588ef8238ba"
+        }
+      ],
+      "manifest": null
+    },
+    "dmatlack": {
+      "repo": "dmatlack/chip8",
+      "last_synced": 1776459517922,
+      "entries": [
+        {
+          "path": "roms/games/15 Puzzle [Roger Ivie] (alt).ch8",
+          "git_sha": "3dea177004fcac857f388510db9c5e71722e80b4",
+          "sha1": "cf3a8c546038c63cd4cc1de8d171b9bf0d57c0ee",
+          "size": 264,
+          "chip8_db_hash": "cf3a8c546038c63cd4cc1de8d171b9bf0d57c0ee"
+        },
+        {
+          "path": "roms/games/15 Puzzle [Roger Ivie].ch8",
+          "git_sha": "3ef0bc8e6937b45b8ce559f520fe59ff20ab494b",
+          "sha1": "ea9af3c09b0d9e265fcd92bcc5d51a2939fdf27a",
+          "size": 384,
+          "chip8_db_hash": "ea9af3c09b0d9e265fcd92bcc5d51a2939fdf27a"
+        },
+        {
+          "path": "roms/games/Addition Problems [Paul C. Moews].ch8",
+          "git_sha": "dedf7cb5730861347c64211defe04a2b96c221f0",
+          "sha1": "feaa2b999737630a6402e990df4d0558f79ba43e",
+          "size": 168,
+          "chip8_db_hash": "feaa2b999737630a6402e990df4d0558f79ba43e"
+        },
+        {
+          "path": "roms/games/Airplane.ch8",
+          "git_sha": "cac880477e824b0948ed65d195c4cc44896577d0",
+          "sha1": "fca71182a8838b686573e69b22aff945d79fe1d0",
+          "size": 356,
+          "chip8_db_hash": "fca71182a8838b686573e69b22aff945d79fe1d0"
+        },
+        {
+          "path": "roms/games/Animal Race [Brian Astle].ch8",
+          "git_sha": "56718da3a42dd1bfc25dea765c8d57327a7a942a",
+          "sha1": "a27dcf88a931f70c3ccf3c01a5410b263bac48bc",
+          "size": 1194,
+          "chip8_db_hash": "a27dcf88a931f70c3ccf3c01a5410b263bac48bc"
+        },
+        {
+          "path": "roms/games/Astro Dodge [Revival Studios, 2008].ch8",
+          "git_sha": "e41bf2cdf28ef3a080c4b1c87fd9fd7c07444996",
+          "sha1": "ac621d9fcada302ba6965768229ef130630bc525",
+          "size": 1113,
+          "chip8_db_hash": "ac621d9fcada302ba6965768229ef130630bc525"
+        },
+        {
+          "path": "roms/games/Biorhythm [Jef Winsor].ch8",
+          "git_sha": "1701460bbc0ceb89a18f48a875c41e1c7151fc54",
+          "sha1": "3368d56efeb584c509bafb548f1ee5e71ac1bc70",
+          "size": 910,
+          "chip8_db_hash": "3368d56efeb584c509bafb548f1ee5e71ac1bc70"
+        },
+        {
+          "path": "roms/games/Blinky [Hans Christian Egeberg, 1991].ch8",
+          "git_sha": "235cf9898cf94c17728b69729f58f73c2449d6b2",
+          "sha1": "d40abc54374e4343639f993e897e00904ddf85d9",
+          "size": 2356,
+          "chip8_db_hash": "d40abc54374e4343639f993e897e00904ddf85d9"
+        },
+        {
+          "path": "roms/games/Blinky [Hans Christian Egeberg] (alt).ch8",
+          "git_sha": "9ac79fcb43a728a6a980bd8421bb4e0031c2e1c2",
+          "sha1": "f4169141735d8d60e51409ca7e73f4adedcefef2",
+          "size": 2078,
+          "chip8_db_hash": "f4169141735d8d60e51409ca7e73f4adedcefef2"
+        },
+        {
+          "path": "roms/games/Blitz [David Winter].ch8",
+          "git_sha": "0d2effabf28e06c6e89184c3313c95cede0fb211",
+          "sha1": "6f6509f38220e057a7e32ebb22dd353c1078e3e7",
+          "size": 391,
+          "chip8_db_hash": "6f6509f38220e057a7e32ebb22dd353c1078e3e7"
+        },
+        {
+          "path": "roms/games/Bowling [Gooitzen van der Wal].ch8",
+          "git_sha": "609d976ca0b0c8e3d2a7a8a0fd85b46ccdefba24",
+          "sha1": "b3fed4ed1eb0ed693c9731dbe53b29a76236c781",
+          "size": 1194,
+          "chip8_db_hash": "b3fed4ed1eb0ed693c9731dbe53b29a76236c781"
+        },
+        {
+          "path": "roms/games/Breakout (Brix hack) [David Winter, 1997].ch8",
+          "git_sha": "622fc4eea35b050e886ed8d924778d5b0fa1969d",
+          "sha1": "237756a4014fb3aa82a29246a7cdd534f8dc2dbb",
+          "size": 280,
+          "chip8_db_hash": "237756a4014fb3aa82a29246a7cdd534f8dc2dbb"
+        },
+        {
+          "path": "roms/games/Breakout [Carmelo Cortez, 1979].ch8",
+          "git_sha": "70b50dbc2399a49032ea11711160eec4754bd994",
+          "sha1": "193915dcde1365ae054c4eaa21a35baa27cd3356",
+          "size": 232,
+          "chip8_db_hash": "193915dcde1365ae054c4eaa21a35baa27cd3356"
+        },
+        {
+          "path": "roms/games/Brick (Brix hack, 1990).ch8",
+          "git_sha": "72a366ee85cc0d8653a31924485eb53bdfaa9598",
+          "sha1": "91442577a6bbf8c3267f2df95fdfc50baebe176d",
+          "size": 286,
+          "chip8_db_hash": "91442577a6bbf8c3267f2df95fdfc50baebe176d"
+        },
+        {
+          "path": "roms/games/Brix [Andreas Gustafsson, 1990].ch8",
+          "git_sha": "ad639d95754002ee1d541444a6658dbab3f6dcaf",
+          "sha1": "f13766c14aeb02ad8d4d103cb5eadd282d20cddc",
+          "size": 280,
+          "chip8_db_hash": "f13766c14aeb02ad8d4d103cb5eadd282d20cddc"
+        },
+        {
+          "path": "roms/games/Cave.ch8",
+          "git_sha": "d5a865fec5c4ce30cc9f32c4da649ed49ebca1e0",
+          "sha1": "5c82520906073287a3ef781746c67207ca084d93",
+          "size": 882,
+          "chip8_db_hash": "5c82520906073287a3ef781746c67207ca084d93"
+        },
+        {
+          "path": "roms/games/Coin Flipping [Carmelo Cortez, 1978].ch8",
+          "git_sha": "518e1d5f0a5b8a5b17a503fbeda835493b81ca06",
+          "sha1": "614a2b3d0bb5d62a16d963ac2d3a79eb3dd22742",
+          "size": 108,
+          "chip8_db_hash": "614a2b3d0bb5d62a16d963ac2d3a79eb3dd22742"
+        },
+        {
+          "path": "roms/games/Connect 4 [David Winter].ch8",
+          "git_sha": "200a67a4a9662e8fee24f713d6e05efa2ab4f3c0",
+          "sha1": "2d10c07b532f4fa7c07a07324ba26ca39fe484fd",
+          "size": 194,
+          "chip8_db_hash": "2d10c07b532f4fa7c07a07324ba26ca39fe484fd"
+        },
+        {
+          "path": "roms/games/Craps [Camerlo Cortez, 1978].ch8",
+          "git_sha": "1717024eee14cbeabd564e1beffa3ebaa9a31b12",
+          "sha1": "35158696bd94ea22ef34e899fff1f15f7154d4fd",
+          "size": 192,
+          "chip8_db_hash": "35158696bd94ea22ef34e899fff1f15f7154d4fd"
+        },
+        {
+          "path": "roms/games/Deflection [John Fort].ch8",
+          "git_sha": "f218966eaae05c725a7e03abc6d1f3c4f3948eeb",
+          "sha1": "8e5f19d8ae9f3346779613359610967a5ed95fa8",
+          "size": 1024,
+          "chip8_db_hash": "8e5f19d8ae9f3346779613359610967a5ed95fa8"
+        },
+        {
+          "path": "roms/games/Figures.ch8",
+          "git_sha": "6563badc0c7e9056cdde68ef345b1aedc58fa3f4",
+          "sha1": "3b2bf5dc7ffb5f3fbe168e802079f79730535ca8",
+          "size": 290,
+          "chip8_db_hash": "3b2bf5dc7ffb5f3fbe168e802079f79730535ca8"
+        },
+        {
+          "path": "roms/games/Filter.ch8",
+          "git_sha": "15ab24cb8b4ca3274babdee6b3bd11ad15dd09c3",
+          "sha1": "ae71a7b081a947f1760cdc147759803aea45e751",
+          "size": 198,
+          "chip8_db_hash": "ae71a7b081a947f1760cdc147759803aea45e751"
+        },
+        {
+          "path": "roms/games/Guess [David Winter] (alt).ch8",
+          "git_sha": "36f783da104d05d22093fe2a349736e0da38589d",
+          "sha1": "5260f8931e0e9f41e555b382a14a88368e3ed886",
+          "size": 148,
+          "chip8_db_hash": null
+        },
+        {
+          "path": "roms/games/Guess [David Winter].ch8",
+          "git_sha": "8f151f19ff92cecb8a47856e101d30502af442b1",
+          "sha1": "137cb8397456f53fcab216124458238bc18c0965",
+          "size": 150,
+          "chip8_db_hash": "137cb8397456f53fcab216124458238bc18c0965"
+        },
+        {
+          "path": "roms/games/Hi-Lo [Jef Winsor, 1978].ch8",
+          "git_sha": "90a872a8412cfab5772767d8d9c46c82e9710f4d",
+          "sha1": "dbb52193db4063149c3d8768ab47dd740d90955c",
+          "size": 170,
+          "chip8_db_hash": "dbb52193db4063149c3d8768ab47dd740d90955c"
+        },
+        {
+          "path": "roms/games/Hidden [David Winter, 1996].ch8",
+          "git_sha": "bd6b18d6c71a0295fce4005fa4bb97ed251f6b4f",
+          "sha1": "050f07a54371da79f924dd0227b89d07b4f2aed0",
+          "size": 850,
+          "chip8_db_hash": "050f07a54371da79f924dd0227b89d07b4f2aed0"
+        },
+        {
+          "path": "roms/games/Kaleidoscope [Joseph Weisbecker, 1978].ch8",
+          "git_sha": "b1c8888166cda2d44efa9decf7582c9f52c9b50a",
+          "sha1": "fc724ae0125f5f1ac94a79fe3afc6318b1f57556",
+          "size": 122,
+          "chip8_db_hash": "fc724ae0125f5f1ac94a79fe3afc6318b1f57556"
+        },
+        {
+          "path": "roms/games/Landing.ch8",
+          "git_sha": "622e81fc148d4ac1808a7489e4710627855f12d2",
+          "sha1": "72fb3e0a4572bdb81f484df7948a8bc736fe78d0",
+          "size": 276,
+          "chip8_db_hash": "72fb3e0a4572bdb81f484df7948a8bc736fe78d0"
+        },
+        {
+          "path": "roms/games/Lunar Lander (Udo Pernisz, 1979).ch8",
+          "git_sha": "e7972b5bd75793eb598e83cf3d2326a459f5b5f1",
+          "sha1": "72e8f3a10a32bd7fb91322ecab87249f95e81e57",
+          "size": 1792,
+          "chip8_db_hash": "72e8f3a10a32bd7fb91322ecab87249f95e81e57"
+        },
+        {
+          "path": "roms/games/Mastermind FourRow (Robert Lindley, 1978).ch8",
+          "git_sha": "f403d71fc7f9366504c5ad1ad1cee2d354fb2cec",
+          "sha1": "669e32b6f42f52da658e428f501aabcdfa37fb2e",
+          "size": 292,
+          "chip8_db_hash": "669e32b6f42f52da658e428f501aabcdfa37fb2e"
+        },
+        {
+          "path": "roms/games/Merlin [David Winter].ch8",
+          "git_sha": "747843a5c6783a6959f6c3731fec10381e93128b",
+          "sha1": "d979858bb9ffd07b48f52f92a8bcac0199f3623e",
+          "size": 345,
+          "chip8_db_hash": "d979858bb9ffd07b48f52f92a8bcac0199f3623e"
+        },
+        {
+          "path": "roms/games/Missile [David Winter].ch8",
+          "git_sha": "310e2dea2e8c2fc8526f68b94545902a2dbd89d7",
+          "sha1": "0d0cc129dad3c45ba672f85fec71a668232212cc",
+          "size": 180,
+          "chip8_db_hash": "0d0cc129dad3c45ba672f85fec71a668232212cc"
+        },
+        {
+          "path": "roms/games/Most Dangerous Game [Peter Maruhnic].ch8",
+          "git_sha": "8407c4fbe0f27bf66437eacdda6445bad16dc4cf",
+          "sha1": "fa7c04f68d78e0faf6d136a3babe3943fc2e02f1",
+          "size": 1010,
+          "chip8_db_hash": "fa7c04f68d78e0faf6d136a3babe3943fc2e02f1"
+        },
+        {
+          "path": "roms/games/Nim [Carmelo Cortez, 1978].ch8",
+          "git_sha": "680c96a31b577f21eb375e8b19aa54a770cc22b8",
+          "sha1": "4031dae5c7545a1adc160a661be36f19fc1d47b2",
+          "size": 182,
+          "chip8_db_hash": "4031dae5c7545a1adc160a661be36f19fc1d47b2"
+        },
+        {
+          "path": "roms/games/Paddles.ch8",
+          "git_sha": "26af3d2ae2113fdde317ef25f028e29bd68adcd1",
+          "sha1": "a18f1e3897416180b32e47ddc82cba9aca2c8d52",
+          "size": 560,
+          "chip8_db_hash": "a18f1e3897416180b32e47ddc82cba9aca2c8d52"
+        },
+        {
+          "path": "roms/games/Pong (1 player).ch8",
+          "git_sha": "65d63106cc088da4fc0e2cfad10e01453e724620",
+          "sha1": "607c4f7f4e4dce9f99d96b3182bfe7e88bb090ee",
+          "size": 246,
+          "chip8_db_hash": "607c4f7f4e4dce9f99d96b3182bfe7e88bb090ee"
+        },
+        {
+          "path": "roms/games/Pong (alt).ch8",
+          "git_sha": "295ce91c67214cf73298959781e6c1c089b55d2a",
+          "sha1": "a60611339661e3ab2d8af024ad1da5880a6f8665",
+          "size": 264,
+          "chip8_db_hash": "a60611339661e3ab2d8af024ad1da5880a6f8665"
+        },
+        {
+          "path": "roms/games/Pong 2 (Pong hack) [David Winter, 1997].ch8",
+          "git_sha": "6af8d1e35400592ecbc0f2c816ff454fa0c06b96",
+          "sha1": "1830eb401ba8789a477dfcf294873a5479ebcfe8",
+          "size": 294,
+          "chip8_db_hash": "1830eb401ba8789a477dfcf294873a5479ebcfe8"
+        },
+        {
+          "path": "roms/games/Pong [Paul Vervalin, 1990].ch8",
+          "git_sha": "e371e91c0fc158fc82c81d15205404406f5446f0",
+          "sha1": "b232ef880bd6060fb45fa6effed7edf0ae95670e",
+          "size": 246,
+          "chip8_db_hash": "b232ef880bd6060fb45fa6effed7edf0ae95670e"
+        },
+        {
+          "path": "roms/games/Programmable Spacefighters [Jef Winsor].ch8",
+          "git_sha": "a6053204708a4d96f31279d8e3838ea53a449873",
+          "sha1": "726cb39afa7e17725af7fab37d153277d86bff77",
+          "size": 1020,
+          "chip8_db_hash": "726cb39afa7e17725af7fab37d153277d86bff77"
+        },
+        {
+          "path": "roms/games/Puzzle.ch8",
+          "git_sha": "bec7af08ae2b0635f8dad89d5782cc12383d3eff",
+          "sha1": "1293db0ccccbe7dd3fc5a09a2abc5d7b175e18e0",
+          "size": 184,
+          "chip8_db_hash": "1293db0ccccbe7dd3fc5a09a2abc5d7b175e18e0"
+        },
+        {
+          "path": "roms/games/Reversi [Philip Baltzer].ch8",
+          "git_sha": "8a600f0bdbdc7279e47ff91fb4d2e825b4901308",
+          "sha1": "ff639eceaf221ae66151a03779b41fae7118d2d8",
+          "size": 578,
+          "chip8_db_hash": "ff639eceaf221ae66151a03779b41fae7118d2d8"
+        },
+        {
+          "path": "roms/games/Rocket Launch [Jonas Lindstedt].ch8",
+          "git_sha": "32bc252aef07bcea29d12be03c8ab318ea98548a",
+          "sha1": "5e70f91ca08e9b9e9de61670492e3db2d7f7d57a",
+          "size": 494,
+          "chip8_db_hash": "5e70f91ca08e9b9e9de61670492e3db2d7f7d57a"
+        },
+        {
+          "path": "roms/games/Rocket Launcher.ch8",
+          "git_sha": "d0825d7b3ab030c508668d69fcb4597c9e3356d1",
+          "sha1": "e2005db6391f589534dd2d63a95b429338bd667c",
+          "size": 112,
+          "chip8_db_hash": "e2005db6391f589534dd2d63a95b429338bd667c"
+        },
+        {
+          "path": "roms/games/Rocket [Joseph Weisbecker, 1978].ch8",
+          "git_sha": "c5db30e0cd65cf456fa6eb8a1689dfd6c6586d53",
+          "sha1": "3d1d029d6e31206d245c0ba881c0d1f003953bad",
+          "size": 130,
+          "chip8_db_hash": "3d1d029d6e31206d245c0ba881c0d1f003953bad"
+        },
+        {
+          "path": "roms/games/Rush Hour [Hap, 2006] (alt).ch8",
+          "git_sha": "f2d48866bbb6e21966670a533385b3b6a5510565",
+          "sha1": "29a41ab4d0aa3bc0d6a9d2fa71d533fe463344b3",
+          "size": 3582,
+          "chip8_db_hash": null
+        },
+        {
+          "path": "roms/games/Rush Hour [Hap, 2006].ch8",
+          "git_sha": "e4253e3cd25ee46d110f36ffbf5ff2d249f73249",
+          "sha1": "4639f86beb0a203ae512b85d3b56d813b2dea7b4",
+          "size": 3582,
+          "chip8_db_hash": "4639f86beb0a203ae512b85d3b56d813b2dea7b4"
+        },
+        {
+          "path": "roms/games/Russian Roulette [Carmelo Cortez, 1978].ch8",
+          "git_sha": "bb90dcace47fa598833f26eb03f67e9ef0ac6c2f",
+          "sha1": "24960090b2afc9de2a4cb3ee7daf6a21456bb49b",
+          "size": 156,
+          "chip8_db_hash": "24960090b2afc9de2a4cb3ee7daf6a21456bb49b"
+        },
+        {
+          "path": "roms/games/Sequence Shoot [Joyce Weisbecker].ch8",
+          "git_sha": "8715b80d1aa170a9edf4cdaeb93357d7a88675df",
+          "sha1": "448f9d30d2157ab42679b809d4fb0b43d145f74f",
+          "size": 324,
+          "chip8_db_hash": "448f9d30d2157ab42679b809d4fb0b43d145f74f"
+        },
+        {
+          "path": "roms/games/Shooting Stars [Philip Baltzer, 1978].ch8",
+          "git_sha": "9cc078f8de3379f86d644629d96acb4a3497edd9",
+          "sha1": "443550abf646bc7f475ef0466f8e1232ec7474f3",
+          "size": 204,
+          "chip8_db_hash": "443550abf646bc7f475ef0466f8e1232ec7474f3"
+        },
+        {
+          "path": "roms/games/Slide [Joyce Weisbecker].ch8",
+          "git_sha": "7a487ed4502bd9edc3d2a4ec0eadf42a6ee54d96",
+          "sha1": "7623fa0fa915979226566b24107360e7537735f4",
+          "size": 388,
+          "chip8_db_hash": "7623fa0fa915979226566b24107360e7537735f4"
+        },
+        {
+          "path": "roms/games/Soccer.ch8",
+          "git_sha": "603ce9bac82ad21cd2159f38e3010e1e079755b3",
+          "sha1": "6df358d77961a0bf21e98876f9f616791cba31e3",
+          "size": 334,
+          "chip8_db_hash": "6df358d77961a0bf21e98876f9f616791cba31e3"
+        },
+        {
+          "path": "roms/games/Space Flight.ch8",
+          "git_sha": "60bc93429b83aeb15a5d267dc5aa09c4d67ea8ab",
+          "sha1": "aa4f1a282bd64a2364102abf5737a4205365a2b4",
+          "size": 716,
+          "chip8_db_hash": "aa4f1a282bd64a2364102abf5737a4205365a2b4"
+        },
+        {
+          "path": "roms/games/Space Intercept [Joseph Weisbecker, 1978].ch8",
+          "git_sha": "014fe6bbd59023d7edf2bbbf435043a50e21566d",
+          "sha1": "ed829190e37815771e7a8c675ba0074996a2ddb0",
+          "size": 192,
+          "chip8_db_hash": "ed829190e37815771e7a8c675ba0074996a2ddb0"
+        },
+        {
+          "path": "roms/games/Space Invaders [David Winter] (alt).ch8",
+          "git_sha": "f7db5f53b5006da92a38a2c0091e6da986ef6138",
+          "sha1": "f100197f0f2f05b4f3c8c31ab9c2c3930d3e9571",
+          "size": 1283,
+          "chip8_db_hash": "f100197f0f2f05b4f3c8c31ab9c2c3930d3e9571"
+        },
+        {
+          "path": "roms/games/Space Invaders [David Winter].ch8",
+          "git_sha": "3ada8dfe93a7d95925a9f52a1bf2cf385101bacd",
+          "sha1": "5c28a5f85289c9d859f95fd5eadbdcb1c30bb08b",
+          "size": 1301,
+          "chip8_db_hash": "5c28a5f85289c9d859f95fd5eadbdcb1c30bb08b"
+        },
+        {
+          "path": "roms/games/Spooky Spot [Joseph Weisbecker, 1978].ch8",
+          "git_sha": "ab2dae8017376123a0ac85f0975eb446b6ee2cd5",
+          "sha1": "1bd92042717c3bc4f7f34cab34be2887145a6704",
+          "size": 154,
+          "chip8_db_hash": "1bd92042717c3bc4f7f34cab34be2887145a6704"
+        },
+        {
+          "path": "roms/games/Squash [David Winter].ch8",
+          "git_sha": "8ab9cfaa16ef162ffcd0e3f517b7e9f064a43576",
+          "sha1": "a58ec7cc63707f9e7274026de27c15ec1d9945bd",
+          "size": 211,
+          "chip8_db_hash": "a58ec7cc63707f9e7274026de27c15ec1d9945bd"
+        },
+        {
+          "path": "roms/games/Submarine [Carmelo Cortez, 1978].ch8",
+          "git_sha": "224b1081377046b475062e362478c83eb65be35f",
+          "sha1": "89aadf7c28bcd1c11e71ad9bd6eeaf0e7be474f3",
+          "size": 288,
+          "chip8_db_hash": "89aadf7c28bcd1c11e71ad9bd6eeaf0e7be474f3"
+        },
+        {
+          "path": "roms/games/Sum Fun [Joyce Weisbecker].ch8",
+          "git_sha": "3c884504e6a8d0fea7fb7f44e62cf5a86676485f",
+          "sha1": "83a2f9c8153be955c28e788bd803aa1d25131330",
+          "size": 176,
+          "chip8_db_hash": "83a2f9c8153be955c28e788bd803aa1d25131330"
+        },
+        {
+          "path": "roms/games/Syzygy [Roy Trevino, 1990].ch8",
+          "git_sha": "b0653ef09ef49586ca50abac49e7eb27fa39b131",
+          "sha1": "1bdb4ddaa7049266fa3226851f28855a365cfd12",
+          "size": 946,
+          "chip8_db_hash": "1bdb4ddaa7049266fa3226851f28855a365cfd12"
+        },
+        {
+          "path": "roms/games/Tank.ch8",
+          "git_sha": "ca4bbab27ff86c5b2ba8c0b6b15ec4d7ec685015",
+          "sha1": "18b9d15f4c159e1f0ed58c2d8ec1d89325d3a3b6",
+          "size": 560,
+          "chip8_db_hash": "18b9d15f4c159e1f0ed58c2d8ec1d89325d3a3b6"
+        },
+        {
+          "path": "roms/games/Tapeworm [JDR, 1999].ch8",
+          "git_sha": "de279d9f6f355266faba052bd8f7d49c4c06fce9",
+          "sha1": "775e82a36c93f1b41b42eca94b55acbc4a48cebe",
+          "size": 284,
+          "chip8_db_hash": "775e82a36c93f1b41b42eca94b55acbc4a48cebe"
+        },
+        {
+          "path": "roms/games/Tetris [Fran Dachille, 1991].ch8",
+          "git_sha": "9f5e0874dbd03b5e99d32a1d81fe3cb343904cb4",
+          "sha1": "5f518084744bf3cb8733f6e5454dfd1634320563",
+          "size": 494,
+          "chip8_db_hash": "5f518084744bf3cb8733f6e5454dfd1634320563"
+        },
+        {
+          "path": "roms/games/Tic-Tac-Toe [David Winter].ch8",
+          "git_sha": "4d4bc9989cbe57d471d53b3b59e54c1953a79bd6",
+          "sha1": "429d455a4bc53167942bf6fd934d72b0f648dce3",
+          "size": 486,
+          "chip8_db_hash": "429d455a4bc53167942bf6fd934d72b0f648dce3"
+        },
+        {
+          "path": "roms/games/Timebomb.ch8",
+          "git_sha": "76828c8f083d98916d864e4d2f44e452ec89585d",
+          "sha1": "67996195539c0ddcd98533a01dffeec6a53a6da1",
+          "size": 144,
+          "chip8_db_hash": "67996195539c0ddcd98533a01dffeec6a53a6da1"
+        },
+        {
+          "path": "roms/games/Tron.ch8",
+          "git_sha": "74f7f519b1b2c881286d76e364b771b2b5c34e84",
+          "sha1": "a6a6cb2351c20b8f904da07c0ce91bd8161e9317",
+          "size": 382,
+          "chip8_db_hash": "a6a6cb2351c20b8f904da07c0ce91bd8161e9317"
+        },
+        {
+          "path": "roms/games/UFO [Lutz V, 1992].ch8",
+          "git_sha": "7fa5a15788e14f66874a80a8aa5d3c86a02ede38",
+          "sha1": "bdb92475acfe11bc7814a2f5eade13fcd09b756a",
+          "size": 224,
+          "chip8_db_hash": "bdb92475acfe11bc7814a2f5eade13fcd09b756a"
+        },
+        {
+          "path": "roms/games/Vers [JMN, 1991].ch8",
+          "git_sha": "b0fe240b34f232ac0d3ff18cca620907877966fb",
+          "sha1": "ade839585ddeb0e3633177df03c1d91589e629eb",
+          "size": 230,
+          "chip8_db_hash": "ade839585ddeb0e3633177df03c1d91589e629eb"
+        },
+        {
+          "path": "roms/games/Vertical Brix [Paul Robson, 1996].ch8",
+          "git_sha": "07f400638cdd232f0c7585727174d5948e02d614",
+          "sha1": "da710f631f8e35534d0b9170bcf892a60f49c43d",
+          "size": 507,
+          "chip8_db_hash": "da710f631f8e35534d0b9170bcf892a60f49c43d"
+        },
+        {
+          "path": "roms/games/Wall [David Winter].ch8",
+          "git_sha": "efd029f0f0bc3ec1b75fc009b310381539646fe9",
+          "sha1": "09ce01c54ddddda42ca5cd171f1ffcfd47355d12",
+          "size": 229,
+          "chip8_db_hash": "09ce01c54ddddda42ca5cd171f1ffcfd47355d12"
+        },
+        {
+          "path": "roms/games/Wipe Off [Joseph Weisbecker].ch8",
+          "git_sha": "2d5e5138ce2c6f8a958c086512e7b76d311b9290",
+          "sha1": "d666688a8fce468a7d88b536bc1ef5f35ba12031",
+          "size": 206,
+          "chip8_db_hash": "d666688a8fce468a7d88b536bc1ef5f35ba12031"
+        },
+        {
+          "path": "roms/games/Worm V4 [RB-Revival Studios, 2007].ch8",
+          "git_sha": "03bc7b8f7e3944fa02de9c45f1f8e8d6382bffd0",
+          "sha1": "a1c1e0e7b01004be3ee77c69030e6b536cb316e6",
+          "size": 677,
+          "chip8_db_hash": "a1c1e0e7b01004be3ee77c69030e6b536cb316e6"
+        },
+        {
+          "path": "roms/games/X-Mirror.ch8",
+          "git_sha": "35253071c0440a8fed3fac991e7dd671411ab717",
+          "sha1": "bc158d819890f16f105b8a316eeeefe4a0bad875",
+          "size": 106,
+          "chip8_db_hash": "bc158d819890f16f105b8a316eeeefe4a0bad875"
+        },
+        {
+          "path": "roms/games/ZeroPong [zeroZshadow, 2007].ch8",
+          "git_sha": "3715699205369c16ebd1ac48f61ab048f070b9ce",
+          "sha1": "f2e9c480af31a4039af02dd7a2b8d5d1f859704d",
+          "size": 184,
+          "chip8_db_hash": "f2e9c480af31a4039af02dd7a2b8d5d1f859704d"
+        },
+        {
+          "path": "roms/demos/Maze (alt) [David Winter, 199x].ch8",
+          "git_sha": "0dca98194909931a4c217eca56340d0b693542d8",
+          "sha1": "8b70080adbac44513ec60005734a816372b845ec",
+          "size": 38,
+          "chip8_db_hash": "8b70080adbac44513ec60005734a816372b845ec"
+        },
+        {
+          "path": "roms/demos/Maze [David Winter, 199x].ch8",
+          "git_sha": "152ae7dab7d5e7634987ea23c45a922db5ac9389",
+          "sha1": "b9272ae1acdaaa79ab649f6b48b72088ca2b1d74",
+          "size": 34,
+          "chip8_db_hash": "b9272ae1acdaaa79ab649f6b48b72088ca2b1d74"
+        },
+        {
+          "path": "roms/demos/Particle Demo [zeroZshadow, 2008].ch8",
+          "git_sha": "2df976558b145545accfb5199f978892c78c0f7d",
+          "sha1": "507e7dc6783565071dfe4b72154af431d4466958",
+          "size": 353,
+          "chip8_db_hash": "507e7dc6783565071dfe4b72154af431d4466958"
+        },
+        {
+          "path": "roms/demos/Sierpinski [Sergey Naydenov, 2010].ch8",
+          "git_sha": "e02d458a8b72c8462530cc80e58cc218175a68e9",
+          "sha1": "a0073e944d5ae9ca14324543fdf818907de80449",
+          "size": 521,
+          "chip8_db_hash": "a0073e944d5ae9ca14324543fdf818907de80449"
+        },
+        {
+          "path": "roms/demos/Sirpinski [Sergey Naydenov, 2010].ch8",
+          "git_sha": "e02d458a8b72c8462530cc80e58cc218175a68e9",
+          "sha1": "a0073e944d5ae9ca14324543fdf818907de80449",
+          "size": 521,
+          "chip8_db_hash": "a0073e944d5ae9ca14324543fdf818907de80449"
+        },
+        {
+          "path": "roms/demos/Stars [Sergey Naydenov, 2010].ch8",
+          "git_sha": "712e83c594a32ab724afe1c99e140b2289c58dbc",
+          "sha1": "0085dd8fce4f7ac2e39ba73cf67cc043f9ba4812",
+          "size": 968,
+          "chip8_db_hash": "0085dd8fce4f7ac2e39ba73cf67cc043f9ba4812"
+        },
+        {
+          "path": "roms/demos/Trip8 Demo (2008) [Revival Studios].ch8",
+          "git_sha": "d88d28fa3f28155bfb1fa52309432768892378cf",
+          "sha1": "032408f1f1d8e6058ecf0f23f421783c87701b39",
+          "size": 3203,
+          "chip8_db_hash": "032408f1f1d8e6058ecf0f23f421783c87701b39"
+        },
+        {
+          "path": "roms/demos/Zero Demo [zeroZshadow, 2007].ch8",
+          "git_sha": "8dbe6155718c89951903f9899990ba9a86325ed0",
+          "sha1": "09f47bea104b86169b9aeb3bdee6e26315ed0a53",
+          "size": 144,
+          "chip8_db_hash": "09f47bea104b86169b9aeb3bdee6e26315ed0a53"
+        }
+      ],
+      "manifest": null
+    },
+    "kripod": {
+      "repo": "kripod/chip8-roms",
+      "last_synced": 1776459190299,
+      "entries": [
+        {
+          "path": "games/15 Puzzle [Roger Ivie] (alt).ch8",
+          "git_sha": "3dea177004fcac857f388510db9c5e71722e80b4",
+          "sha1": "cf3a8c546038c63cd4cc1de8d171b9bf0d57c0ee",
+          "size": 264,
+          "chip8_db_hash": "cf3a8c546038c63cd4cc1de8d171b9bf0d57c0ee"
+        },
+        {
+          "path": "games/15 Puzzle [Roger Ivie].ch8",
+          "git_sha": "3ef0bc8e6937b45b8ce559f520fe59ff20ab494b",
+          "sha1": "ea9af3c09b0d9e265fcd92bcc5d51a2939fdf27a",
+          "size": 384,
+          "chip8_db_hash": "ea9af3c09b0d9e265fcd92bcc5d51a2939fdf27a"
+        },
+        {
+          "path": "games/Addition Problems [Paul C. Moews].ch8",
+          "git_sha": "dedf7cb5730861347c64211defe04a2b96c221f0",
+          "sha1": "feaa2b999737630a6402e990df4d0558f79ba43e",
+          "size": 168,
+          "chip8_db_hash": "feaa2b999737630a6402e990df4d0558f79ba43e"
+        },
+        {
+          "path": "games/Airplane.ch8",
+          "git_sha": "cac880477e824b0948ed65d195c4cc44896577d0",
+          "sha1": "fca71182a8838b686573e69b22aff945d79fe1d0",
+          "size": 356,
+          "chip8_db_hash": "fca71182a8838b686573e69b22aff945d79fe1d0"
+        },
+        {
+          "path": "games/Animal Race [Brian Astle].ch8",
+          "git_sha": "56718da3a42dd1bfc25dea765c8d57327a7a942a",
+          "sha1": "a27dcf88a931f70c3ccf3c01a5410b263bac48bc",
+          "size": 1194,
+          "chip8_db_hash": "a27dcf88a931f70c3ccf3c01a5410b263bac48bc"
+        },
+        {
+          "path": "games/Astro Dodge [Revival Studios, 2008].ch8",
+          "git_sha": "e41bf2cdf28ef3a080c4b1c87fd9fd7c07444996",
+          "sha1": "ac621d9fcada302ba6965768229ef130630bc525",
+          "size": 1113,
+          "chip8_db_hash": "ac621d9fcada302ba6965768229ef130630bc525"
+        },
+        {
+          "path": "games/Biorhythm [Jef Winsor].ch8",
+          "git_sha": "1701460bbc0ceb89a18f48a875c41e1c7151fc54",
+          "sha1": "3368d56efeb584c509bafb548f1ee5e71ac1bc70",
+          "size": 910,
+          "chip8_db_hash": "3368d56efeb584c509bafb548f1ee5e71ac1bc70"
+        },
+        {
+          "path": "games/Blinky [Hans Christian Egeberg, 1991].ch8",
+          "git_sha": "235cf9898cf94c17728b69729f58f73c2449d6b2",
+          "sha1": "d40abc54374e4343639f993e897e00904ddf85d9",
+          "size": 2356,
+          "chip8_db_hash": "d40abc54374e4343639f993e897e00904ddf85d9"
+        },
+        {
+          "path": "games/Blinky [Hans Christian Egeberg] (alt).ch8",
+          "git_sha": "9ac79fcb43a728a6a980bd8421bb4e0031c2e1c2",
+          "sha1": "f4169141735d8d60e51409ca7e73f4adedcefef2",
+          "size": 2078,
+          "chip8_db_hash": "f4169141735d8d60e51409ca7e73f4adedcefef2"
+        },
+        {
+          "path": "games/Blitz [David Winter].ch8",
+          "git_sha": "0d2effabf28e06c6e89184c3313c95cede0fb211",
+          "sha1": "6f6509f38220e057a7e32ebb22dd353c1078e3e7",
+          "size": 391,
+          "chip8_db_hash": "6f6509f38220e057a7e32ebb22dd353c1078e3e7"
+        },
+        {
+          "path": "games/Bowling [Gooitzen van der Wal].ch8",
+          "git_sha": "609d976ca0b0c8e3d2a7a8a0fd85b46ccdefba24",
+          "sha1": "b3fed4ed1eb0ed693c9731dbe53b29a76236c781",
+          "size": 1194,
+          "chip8_db_hash": "b3fed4ed1eb0ed693c9731dbe53b29a76236c781"
+        },
+        {
+          "path": "games/Breakout (Brix hack) [David Winter, 1997].ch8",
+          "git_sha": "622fc4eea35b050e886ed8d924778d5b0fa1969d",
+          "sha1": "237756a4014fb3aa82a29246a7cdd534f8dc2dbb",
+          "size": 280,
+          "chip8_db_hash": "237756a4014fb3aa82a29246a7cdd534f8dc2dbb"
+        },
+        {
+          "path": "games/Breakout [Carmelo Cortez, 1979].ch8",
+          "git_sha": "70b50dbc2399a49032ea11711160eec4754bd994",
+          "sha1": "193915dcde1365ae054c4eaa21a35baa27cd3356",
+          "size": 232,
+          "chip8_db_hash": "193915dcde1365ae054c4eaa21a35baa27cd3356"
+        },
+        {
+          "path": "games/Brick (Brix hack, 1990).ch8",
+          "git_sha": "72a366ee85cc0d8653a31924485eb53bdfaa9598",
+          "sha1": "91442577a6bbf8c3267f2df95fdfc50baebe176d",
+          "size": 286,
+          "chip8_db_hash": "91442577a6bbf8c3267f2df95fdfc50baebe176d"
+        },
+        {
+          "path": "games/Brix [Andreas Gustafsson, 1990].ch8",
+          "git_sha": "ad639d95754002ee1d541444a6658dbab3f6dcaf",
+          "sha1": "f13766c14aeb02ad8d4d103cb5eadd282d20cddc",
+          "size": 280,
+          "chip8_db_hash": "f13766c14aeb02ad8d4d103cb5eadd282d20cddc"
+        },
+        {
+          "path": "games/Cave.ch8",
+          "git_sha": "d5a865fec5c4ce30cc9f32c4da649ed49ebca1e0",
+          "sha1": "5c82520906073287a3ef781746c67207ca084d93",
+          "size": 882,
+          "chip8_db_hash": "5c82520906073287a3ef781746c67207ca084d93"
+        },
+        {
+          "path": "games/Coin Flipping [Carmelo Cortez, 1978].ch8",
+          "git_sha": "518e1d5f0a5b8a5b17a503fbeda835493b81ca06",
+          "sha1": "614a2b3d0bb5d62a16d963ac2d3a79eb3dd22742",
+          "size": 108,
+          "chip8_db_hash": "614a2b3d0bb5d62a16d963ac2d3a79eb3dd22742"
+        },
+        {
+          "path": "games/Connect 4 [David Winter].ch8",
+          "git_sha": "200a67a4a9662e8fee24f713d6e05efa2ab4f3c0",
+          "sha1": "2d10c07b532f4fa7c07a07324ba26ca39fe484fd",
+          "size": 194,
+          "chip8_db_hash": "2d10c07b532f4fa7c07a07324ba26ca39fe484fd"
+        },
+        {
+          "path": "games/Craps [Camerlo Cortez, 1978].ch8",
+          "git_sha": "1717024eee14cbeabd564e1beffa3ebaa9a31b12",
+          "sha1": "35158696bd94ea22ef34e899fff1f15f7154d4fd",
+          "size": 192,
+          "chip8_db_hash": "35158696bd94ea22ef34e899fff1f15f7154d4fd"
+        },
+        {
+          "path": "games/Deflection [John Fort].ch8",
+          "git_sha": "f218966eaae05c725a7e03abc6d1f3c4f3948eeb",
+          "sha1": "8e5f19d8ae9f3346779613359610967a5ed95fa8",
+          "size": 1024,
+          "chip8_db_hash": "8e5f19d8ae9f3346779613359610967a5ed95fa8"
+        },
+        {
+          "path": "games/Figures.ch8",
+          "git_sha": "6563badc0c7e9056cdde68ef345b1aedc58fa3f4",
+          "sha1": "3b2bf5dc7ffb5f3fbe168e802079f79730535ca8",
+          "size": 290,
+          "chip8_db_hash": "3b2bf5dc7ffb5f3fbe168e802079f79730535ca8"
+        },
+        {
+          "path": "games/Filter.ch8",
+          "git_sha": "15ab24cb8b4ca3274babdee6b3bd11ad15dd09c3",
+          "sha1": "ae71a7b081a947f1760cdc147759803aea45e751",
+          "size": 198,
+          "chip8_db_hash": "ae71a7b081a947f1760cdc147759803aea45e751"
+        },
+        {
+          "path": "games/Guess [David Winter] (alt).ch8",
+          "git_sha": "36f783da104d05d22093fe2a349736e0da38589d",
+          "sha1": "5260f8931e0e9f41e555b382a14a88368e3ed886",
+          "size": 148,
+          "chip8_db_hash": null
+        },
+        {
+          "path": "games/Guess [David Winter].ch8",
+          "git_sha": "8f151f19ff92cecb8a47856e101d30502af442b1",
+          "sha1": "137cb8397456f53fcab216124458238bc18c0965",
+          "size": 150,
+          "chip8_db_hash": "137cb8397456f53fcab216124458238bc18c0965"
+        },
+        {
+          "path": "games/Hi-Lo [Jef Winsor, 1978].ch8",
+          "git_sha": "90a872a8412cfab5772767d8d9c46c82e9710f4d",
+          "sha1": "dbb52193db4063149c3d8768ab47dd740d90955c",
+          "size": 170,
+          "chip8_db_hash": "dbb52193db4063149c3d8768ab47dd740d90955c"
+        },
+        {
+          "path": "games/Hidden [David Winter, 1996].ch8",
+          "git_sha": "bd6b18d6c71a0295fce4005fa4bb97ed251f6b4f",
+          "sha1": "050f07a54371da79f924dd0227b89d07b4f2aed0",
+          "size": 850,
+          "chip8_db_hash": "050f07a54371da79f924dd0227b89d07b4f2aed0"
+        },
+        {
+          "path": "games/Kaleidoscope [Joseph Weisbecker, 1978].ch8",
+          "git_sha": "b1c8888166cda2d44efa9decf7582c9f52c9b50a",
+          "sha1": "fc724ae0125f5f1ac94a79fe3afc6318b1f57556",
+          "size": 122,
+          "chip8_db_hash": "fc724ae0125f5f1ac94a79fe3afc6318b1f57556"
+        },
+        {
+          "path": "games/Landing.ch8",
+          "git_sha": "622e81fc148d4ac1808a7489e4710627855f12d2",
+          "sha1": "72fb3e0a4572bdb81f484df7948a8bc736fe78d0",
+          "size": 276,
+          "chip8_db_hash": "72fb3e0a4572bdb81f484df7948a8bc736fe78d0"
+        },
+        {
+          "path": "games/Lunar Lander (Udo Pernisz, 1979).ch8",
+          "git_sha": "e7972b5bd75793eb598e83cf3d2326a459f5b5f1",
+          "sha1": "72e8f3a10a32bd7fb91322ecab87249f95e81e57",
+          "size": 1792,
+          "chip8_db_hash": "72e8f3a10a32bd7fb91322ecab87249f95e81e57"
+        },
+        {
+          "path": "games/Mastermind FourRow (Robert Lindley, 1978).ch8",
+          "git_sha": "f403d71fc7f9366504c5ad1ad1cee2d354fb2cec",
+          "sha1": "669e32b6f42f52da658e428f501aabcdfa37fb2e",
+          "size": 292,
+          "chip8_db_hash": "669e32b6f42f52da658e428f501aabcdfa37fb2e"
+        },
+        {
+          "path": "games/Merlin [David Winter].ch8",
+          "git_sha": "747843a5c6783a6959f6c3731fec10381e93128b",
+          "sha1": "d979858bb9ffd07b48f52f92a8bcac0199f3623e",
+          "size": 345,
+          "chip8_db_hash": "d979858bb9ffd07b48f52f92a8bcac0199f3623e"
+        },
+        {
+          "path": "games/Missile [David Winter].ch8",
+          "git_sha": "310e2dea2e8c2fc8526f68b94545902a2dbd89d7",
+          "sha1": "0d0cc129dad3c45ba672f85fec71a668232212cc",
+          "size": 180,
+          "chip8_db_hash": "0d0cc129dad3c45ba672f85fec71a668232212cc"
+        },
+        {
+          "path": "games/Most Dangerous Game [Peter Maruhnic].ch8",
+          "git_sha": "8407c4fbe0f27bf66437eacdda6445bad16dc4cf",
+          "sha1": "fa7c04f68d78e0faf6d136a3babe3943fc2e02f1",
+          "size": 1010,
+          "chip8_db_hash": "fa7c04f68d78e0faf6d136a3babe3943fc2e02f1"
+        },
+        {
+          "path": "games/Nim [Carmelo Cortez, 1978].ch8",
+          "git_sha": "680c96a31b577f21eb375e8b19aa54a770cc22b8",
+          "sha1": "4031dae5c7545a1adc160a661be36f19fc1d47b2",
+          "size": 182,
+          "chip8_db_hash": "4031dae5c7545a1adc160a661be36f19fc1d47b2"
+        },
+        {
+          "path": "games/Paddles.ch8",
+          "git_sha": "26af3d2ae2113fdde317ef25f028e29bd68adcd1",
+          "sha1": "a18f1e3897416180b32e47ddc82cba9aca2c8d52",
+          "size": 560,
+          "chip8_db_hash": "a18f1e3897416180b32e47ddc82cba9aca2c8d52"
+        },
+        {
+          "path": "games/Pong (1 player).ch8",
+          "git_sha": "65d63106cc088da4fc0e2cfad10e01453e724620",
+          "sha1": "607c4f7f4e4dce9f99d96b3182bfe7e88bb090ee",
+          "size": 246,
+          "chip8_db_hash": "607c4f7f4e4dce9f99d96b3182bfe7e88bb090ee"
+        },
+        {
+          "path": "games/Pong (alt).ch8",
+          "git_sha": "295ce91c67214cf73298959781e6c1c089b55d2a",
+          "sha1": "a60611339661e3ab2d8af024ad1da5880a6f8665",
+          "size": 264,
+          "chip8_db_hash": "a60611339661e3ab2d8af024ad1da5880a6f8665"
+        },
+        {
+          "path": "games/Pong 2 (Pong hack) [David Winter, 1997].ch8",
+          "git_sha": "6af8d1e35400592ecbc0f2c816ff454fa0c06b96",
+          "sha1": "1830eb401ba8789a477dfcf294873a5479ebcfe8",
+          "size": 294,
+          "chip8_db_hash": "1830eb401ba8789a477dfcf294873a5479ebcfe8"
+        },
+        {
+          "path": "games/Pong [Paul Vervalin, 1990].ch8",
+          "git_sha": "e371e91c0fc158fc82c81d15205404406f5446f0",
+          "sha1": "b232ef880bd6060fb45fa6effed7edf0ae95670e",
+          "size": 246,
+          "chip8_db_hash": "b232ef880bd6060fb45fa6effed7edf0ae95670e"
+        },
+        {
+          "path": "games/Programmable Spacefighters [Jef Winsor].ch8",
+          "git_sha": "a6053204708a4d96f31279d8e3838ea53a449873",
+          "sha1": "726cb39afa7e17725af7fab37d153277d86bff77",
+          "size": 1020,
+          "chip8_db_hash": "726cb39afa7e17725af7fab37d153277d86bff77"
+        },
+        {
+          "path": "games/Puzzle.ch8",
+          "git_sha": "bec7af08ae2b0635f8dad89d5782cc12383d3eff",
+          "sha1": "1293db0ccccbe7dd3fc5a09a2abc5d7b175e18e0",
+          "size": 184,
+          "chip8_db_hash": "1293db0ccccbe7dd3fc5a09a2abc5d7b175e18e0"
+        },
+        {
+          "path": "games/Reversi [Philip Baltzer].ch8",
+          "git_sha": "8a600f0bdbdc7279e47ff91fb4d2e825b4901308",
+          "sha1": "ff639eceaf221ae66151a03779b41fae7118d2d8",
+          "size": 578,
+          "chip8_db_hash": "ff639eceaf221ae66151a03779b41fae7118d2d8"
+        },
+        {
+          "path": "games/Rocket Launch [Jonas Lindstedt].ch8",
+          "git_sha": "32bc252aef07bcea29d12be03c8ab318ea98548a",
+          "sha1": "5e70f91ca08e9b9e9de61670492e3db2d7f7d57a",
+          "size": 494,
+          "chip8_db_hash": "5e70f91ca08e9b9e9de61670492e3db2d7f7d57a"
+        },
+        {
+          "path": "games/Rocket Launcher.ch8",
+          "git_sha": "d0825d7b3ab030c508668d69fcb4597c9e3356d1",
+          "sha1": "e2005db6391f589534dd2d63a95b429338bd667c",
+          "size": 112,
+          "chip8_db_hash": "e2005db6391f589534dd2d63a95b429338bd667c"
+        },
+        {
+          "path": "games/Rocket [Joseph Weisbecker, 1978].ch8",
+          "git_sha": "c5db30e0cd65cf456fa6eb8a1689dfd6c6586d53",
+          "sha1": "3d1d029d6e31206d245c0ba881c0d1f003953bad",
+          "size": 130,
+          "chip8_db_hash": "3d1d029d6e31206d245c0ba881c0d1f003953bad"
+        },
+        {
+          "path": "games/Rush Hour [Hap, 2006] (alt).ch8",
+          "git_sha": "f2d48866bbb6e21966670a533385b3b6a5510565",
+          "sha1": "29a41ab4d0aa3bc0d6a9d2fa71d533fe463344b3",
+          "size": 3582,
+          "chip8_db_hash": null
+        },
+        {
+          "path": "games/Rush Hour [Hap, 2006].ch8",
+          "git_sha": "e4253e3cd25ee46d110f36ffbf5ff2d249f73249",
+          "sha1": "4639f86beb0a203ae512b85d3b56d813b2dea7b4",
+          "size": 3582,
+          "chip8_db_hash": "4639f86beb0a203ae512b85d3b56d813b2dea7b4"
+        },
+        {
+          "path": "games/Russian Roulette [Carmelo Cortez, 1978].ch8",
+          "git_sha": "bb90dcace47fa598833f26eb03f67e9ef0ac6c2f",
+          "sha1": "24960090b2afc9de2a4cb3ee7daf6a21456bb49b",
+          "size": 156,
+          "chip8_db_hash": "24960090b2afc9de2a4cb3ee7daf6a21456bb49b"
+        },
+        {
+          "path": "games/Sequence Shoot [Joyce Weisbecker].ch8",
+          "git_sha": "8715b80d1aa170a9edf4cdaeb93357d7a88675df",
+          "sha1": "448f9d30d2157ab42679b809d4fb0b43d145f74f",
+          "size": 324,
+          "chip8_db_hash": "448f9d30d2157ab42679b809d4fb0b43d145f74f"
+        },
+        {
+          "path": "games/Shooting Stars [Philip Baltzer, 1978].ch8",
+          "git_sha": "9cc078f8de3379f86d644629d96acb4a3497edd9",
+          "sha1": "443550abf646bc7f475ef0466f8e1232ec7474f3",
+          "size": 204,
+          "chip8_db_hash": "443550abf646bc7f475ef0466f8e1232ec7474f3"
+        },
+        {
+          "path": "games/Slide [Joyce Weisbecker].ch8",
+          "git_sha": "7a487ed4502bd9edc3d2a4ec0eadf42a6ee54d96",
+          "sha1": "7623fa0fa915979226566b24107360e7537735f4",
+          "size": 388,
+          "chip8_db_hash": "7623fa0fa915979226566b24107360e7537735f4"
+        },
+        {
+          "path": "games/Soccer.ch8",
+          "git_sha": "603ce9bac82ad21cd2159f38e3010e1e079755b3",
+          "sha1": "6df358d77961a0bf21e98876f9f616791cba31e3",
+          "size": 334,
+          "chip8_db_hash": "6df358d77961a0bf21e98876f9f616791cba31e3"
+        },
+        {
+          "path": "games/Space Flight.ch8",
+          "git_sha": "60bc93429b83aeb15a5d267dc5aa09c4d67ea8ab",
+          "sha1": "aa4f1a282bd64a2364102abf5737a4205365a2b4",
+          "size": 716,
+          "chip8_db_hash": "aa4f1a282bd64a2364102abf5737a4205365a2b4"
+        },
+        {
+          "path": "games/Space Intercept [Joseph Weisbecker, 1978].ch8",
+          "git_sha": "014fe6bbd59023d7edf2bbbf435043a50e21566d",
+          "sha1": "ed829190e37815771e7a8c675ba0074996a2ddb0",
+          "size": 192,
+          "chip8_db_hash": "ed829190e37815771e7a8c675ba0074996a2ddb0"
+        },
+        {
+          "path": "games/Space Invaders [David Winter] (alt).ch8",
+          "git_sha": "f7db5f53b5006da92a38a2c0091e6da986ef6138",
+          "sha1": "f100197f0f2f05b4f3c8c31ab9c2c3930d3e9571",
+          "size": 1283,
+          "chip8_db_hash": "f100197f0f2f05b4f3c8c31ab9c2c3930d3e9571"
+        },
+        {
+          "path": "games/Space Invaders [David Winter].ch8",
+          "git_sha": "3ada8dfe93a7d95925a9f52a1bf2cf385101bacd",
+          "sha1": "5c28a5f85289c9d859f95fd5eadbdcb1c30bb08b",
+          "size": 1301,
+          "chip8_db_hash": "5c28a5f85289c9d859f95fd5eadbdcb1c30bb08b"
+        },
+        {
+          "path": "games/Spooky Spot [Joseph Weisbecker, 1978].ch8",
+          "git_sha": "ab2dae8017376123a0ac85f0975eb446b6ee2cd5",
+          "sha1": "1bd92042717c3bc4f7f34cab34be2887145a6704",
+          "size": 154,
+          "chip8_db_hash": "1bd92042717c3bc4f7f34cab34be2887145a6704"
+        },
+        {
+          "path": "games/Squash [David Winter].ch8",
+          "git_sha": "8ab9cfaa16ef162ffcd0e3f517b7e9f064a43576",
+          "sha1": "a58ec7cc63707f9e7274026de27c15ec1d9945bd",
+          "size": 211,
+          "chip8_db_hash": "a58ec7cc63707f9e7274026de27c15ec1d9945bd"
+        },
+        {
+          "path": "games/Submarine [Carmelo Cortez, 1978].ch8",
+          "git_sha": "224b1081377046b475062e362478c83eb65be35f",
+          "sha1": "89aadf7c28bcd1c11e71ad9bd6eeaf0e7be474f3",
+          "size": 288,
+          "chip8_db_hash": "89aadf7c28bcd1c11e71ad9bd6eeaf0e7be474f3"
+        },
+        {
+          "path": "games/Sum Fun [Joyce Weisbecker].ch8",
+          "git_sha": "3c884504e6a8d0fea7fb7f44e62cf5a86676485f",
+          "sha1": "83a2f9c8153be955c28e788bd803aa1d25131330",
+          "size": 176,
+          "chip8_db_hash": "83a2f9c8153be955c28e788bd803aa1d25131330"
+        },
+        {
+          "path": "games/Syzygy [Roy Trevino, 1990].ch8",
+          "git_sha": "b0653ef09ef49586ca50abac49e7eb27fa39b131",
+          "sha1": "1bdb4ddaa7049266fa3226851f28855a365cfd12",
+          "size": 946,
+          "chip8_db_hash": "1bdb4ddaa7049266fa3226851f28855a365cfd12"
+        },
+        {
+          "path": "games/Tank.ch8",
+          "git_sha": "ca4bbab27ff86c5b2ba8c0b6b15ec4d7ec685015",
+          "sha1": "18b9d15f4c159e1f0ed58c2d8ec1d89325d3a3b6",
+          "size": 560,
+          "chip8_db_hash": "18b9d15f4c159e1f0ed58c2d8ec1d89325d3a3b6"
+        },
+        {
+          "path": "games/Tapeworm [JDR, 1999].ch8",
+          "git_sha": "de279d9f6f355266faba052bd8f7d49c4c06fce9",
+          "sha1": "775e82a36c93f1b41b42eca94b55acbc4a48cebe",
+          "size": 284,
+          "chip8_db_hash": "775e82a36c93f1b41b42eca94b55acbc4a48cebe"
+        },
+        {
+          "path": "games/Tetris [Fran Dachille, 1991].ch8",
+          "git_sha": "9f5e0874dbd03b5e99d32a1d81fe3cb343904cb4",
+          "sha1": "5f518084744bf3cb8733f6e5454dfd1634320563",
+          "size": 494,
+          "chip8_db_hash": "5f518084744bf3cb8733f6e5454dfd1634320563"
+        },
+        {
+          "path": "games/Tic-Tac-Toe [David Winter].ch8",
+          "git_sha": "4d4bc9989cbe57d471d53b3b59e54c1953a79bd6",
+          "sha1": "429d455a4bc53167942bf6fd934d72b0f648dce3",
+          "size": 486,
+          "chip8_db_hash": "429d455a4bc53167942bf6fd934d72b0f648dce3"
+        },
+        {
+          "path": "games/Timebomb.ch8",
+          "git_sha": "76828c8f083d98916d864e4d2f44e452ec89585d",
+          "sha1": "67996195539c0ddcd98533a01dffeec6a53a6da1",
+          "size": 144,
+          "chip8_db_hash": "67996195539c0ddcd98533a01dffeec6a53a6da1"
+        },
+        {
+          "path": "games/Tron.ch8",
+          "git_sha": "74f7f519b1b2c881286d76e364b771b2b5c34e84",
+          "sha1": "a6a6cb2351c20b8f904da07c0ce91bd8161e9317",
+          "size": 382,
+          "chip8_db_hash": "a6a6cb2351c20b8f904da07c0ce91bd8161e9317"
+        },
+        {
+          "path": "games/UFO [Lutz V, 1992].ch8",
+          "git_sha": "7fa5a15788e14f66874a80a8aa5d3c86a02ede38",
+          "sha1": "bdb92475acfe11bc7814a2f5eade13fcd09b756a",
+          "size": 224,
+          "chip8_db_hash": "bdb92475acfe11bc7814a2f5eade13fcd09b756a"
+        },
+        {
+          "path": "games/Vers [JMN, 1991].ch8",
+          "git_sha": "b0fe240b34f232ac0d3ff18cca620907877966fb",
+          "sha1": "ade839585ddeb0e3633177df03c1d91589e629eb",
+          "size": 230,
+          "chip8_db_hash": "ade839585ddeb0e3633177df03c1d91589e629eb"
+        },
+        {
+          "path": "games/Vertical Brix [Paul Robson, 1996].ch8",
+          "git_sha": "07f400638cdd232f0c7585727174d5948e02d614",
+          "sha1": "da710f631f8e35534d0b9170bcf892a60f49c43d",
+          "size": 507,
+          "chip8_db_hash": "da710f631f8e35534d0b9170bcf892a60f49c43d"
+        },
+        {
+          "path": "games/Wall [David Winter].ch8",
+          "git_sha": "efd029f0f0bc3ec1b75fc009b310381539646fe9",
+          "sha1": "09ce01c54ddddda42ca5cd171f1ffcfd47355d12",
+          "size": 229,
+          "chip8_db_hash": "09ce01c54ddddda42ca5cd171f1ffcfd47355d12"
+        },
+        {
+          "path": "games/Wipe Off [Joseph Weisbecker].ch8",
+          "git_sha": "2d5e5138ce2c6f8a958c086512e7b76d311b9290",
+          "sha1": "d666688a8fce468a7d88b536bc1ef5f35ba12031",
+          "size": 206,
+          "chip8_db_hash": "d666688a8fce468a7d88b536bc1ef5f35ba12031"
+        },
+        {
+          "path": "games/Worm V4 [RB-Revival Studios, 2007].ch8",
+          "git_sha": "03bc7b8f7e3944fa02de9c45f1f8e8d6382bffd0",
+          "sha1": "a1c1e0e7b01004be3ee77c69030e6b536cb316e6",
+          "size": 677,
+          "chip8_db_hash": "a1c1e0e7b01004be3ee77c69030e6b536cb316e6"
+        },
+        {
+          "path": "games/X-Mirror.ch8",
+          "git_sha": "35253071c0440a8fed3fac991e7dd671411ab717",
+          "sha1": "bc158d819890f16f105b8a316eeeefe4a0bad875",
+          "size": 106,
+          "chip8_db_hash": "bc158d819890f16f105b8a316eeeefe4a0bad875"
+        },
+        {
+          "path": "games/ZeroPong [zeroZshadow, 2007].ch8",
+          "git_sha": "3715699205369c16ebd1ac48f61ab048f070b9ce",
+          "sha1": "f2e9c480af31a4039af02dd7a2b8d5d1f859704d",
+          "size": 184,
+          "chip8_db_hash": "f2e9c480af31a4039af02dd7a2b8d5d1f859704d"
+        },
+        {
+          "path": "demos/Maze (alt) [David Winter, 199x].ch8",
+          "git_sha": "0dca98194909931a4c217eca56340d0b693542d8",
+          "sha1": "8b70080adbac44513ec60005734a816372b845ec",
+          "size": 38,
+          "chip8_db_hash": "8b70080adbac44513ec60005734a816372b845ec"
+        },
+        {
+          "path": "demos/Maze [David Winter, 199x].ch8",
+          "git_sha": "152ae7dab7d5e7634987ea23c45a922db5ac9389",
+          "sha1": "b9272ae1acdaaa79ab649f6b48b72088ca2b1d74",
+          "size": 34,
+          "chip8_db_hash": "b9272ae1acdaaa79ab649f6b48b72088ca2b1d74"
+        },
+        {
+          "path": "demos/Particle Demo [zeroZshadow, 2008].ch8",
+          "git_sha": "2df976558b145545accfb5199f978892c78c0f7d",
+          "sha1": "507e7dc6783565071dfe4b72154af431d4466958",
+          "size": 353,
+          "chip8_db_hash": "507e7dc6783565071dfe4b72154af431d4466958"
+        },
+        {
+          "path": "demos/Sierpinski [Sergey Naydenov, 2010].ch8",
+          "git_sha": "e02d458a8b72c8462530cc80e58cc218175a68e9",
+          "sha1": "a0073e944d5ae9ca14324543fdf818907de80449",
+          "size": 521,
+          "chip8_db_hash": "a0073e944d5ae9ca14324543fdf818907de80449"
+        },
+        {
+          "path": "demos/Sirpinski [Sergey Naydenov, 2010].ch8",
+          "git_sha": "e02d458a8b72c8462530cc80e58cc218175a68e9",
+          "sha1": "a0073e944d5ae9ca14324543fdf818907de80449",
+          "size": 521,
+          "chip8_db_hash": "a0073e944d5ae9ca14324543fdf818907de80449"
+        },
+        {
+          "path": "demos/Stars [Sergey Naydenov, 2010].ch8",
+          "git_sha": "712e83c594a32ab724afe1c99e140b2289c58dbc",
+          "sha1": "0085dd8fce4f7ac2e39ba73cf67cc043f9ba4812",
+          "size": 968,
+          "chip8_db_hash": "0085dd8fce4f7ac2e39ba73cf67cc043f9ba4812"
+        },
+        {
+          "path": "demos/Trip8 Demo (2008) [Revival Studios].ch8",
+          "git_sha": "d88d28fa3f28155bfb1fa52309432768892378cf",
+          "sha1": "032408f1f1d8e6058ecf0f23f421783c87701b39",
+          "size": 3203,
+          "chip8_db_hash": "032408f1f1d8e6058ecf0f23f421783c87701b39"
+        },
+        {
+          "path": "demos/Zero Demo [zeroZshadow, 2007].ch8",
+          "git_sha": "8dbe6155718c89951903f9899990ba9a86325ed0",
+          "sha1": "09f47bea104b86169b9aeb3bdee6e26315ed0a53",
+          "size": 144,
+          "chip8_db_hash": "09f47bea104b86169b9aeb3bdee6e26315ed0a53"
+        },
+        {
+          "path": "programs/BMP Viewer - Hello (C8 example) [Hap, 2005].ch8",
+          "git_sha": "a6355a97b9e77155b18837ee97615c2b08356250",
+          "sha1": "72c2cbfea48000e25891dd4968ae9f1adef1e7e3",
+          "size": 304,
+          "chip8_db_hash": "72c2cbfea48000e25891dd4968ae9f1adef1e7e3"
+        },
+        {
+          "path": "programs/Chip8 Picture.ch8",
+          "git_sha": "74ab4bf9169a6022ca29ba20d515cf0d34dd1409",
+          "sha1": "a82ca5c53e1dcedfab4f65efef02229145771b7d",
+          "size": 164,
+          "chip8_db_hash": "a82ca5c53e1dcedfab4f65efef02229145771b7d"
+        },
+        {
+          "path": "programs/Chip8 emulator Logo [Garstyciuks].ch8",
+          "git_sha": "c0e5923fb6039afd703d796fb86225e54931e909",
+          "sha1": "d92c71b955b7634370571bd707715cf8bb0e2fb4",
+          "size": 288,
+          "chip8_db_hash": "d92c71b955b7634370571bd707715cf8bb0e2fb4"
+        },
+        {
+          "path": "programs/Clock Program [Bill Fisher, 1981].ch8",
+          "git_sha": "ec137bd137128f1400f768753b44eb39ff75a0d7",
+          "sha1": "016345d75eef34448840845a9590d41e6bfdf46a",
+          "size": 280,
+          "chip8_db_hash": "016345d75eef34448840845a9590d41e6bfdf46a"
+        },
+        {
+          "path": "programs/Delay Timer Test [Matthew Mikolay, 2010].ch8",
+          "git_sha": "aa9ae28e2a27e20cf5a19dbecfebc89b3b7bf191",
+          "sha1": "082c71b67e36e033c2e615ad89ba4ed5d55a56d0",
+          "size": 58,
+          "chip8_db_hash": "082c71b67e36e033c2e615ad89ba4ed5d55a56d0"
+        },
+        {
+          "path": "programs/Division Test [Sergey Naydenov, 2010].ch8",
+          "git_sha": "85fa8503dbd728e44d61000c0cb2a1e0657cfdae",
+          "sha1": "064492173cf4ccac3cce8fe307fc164b397013b9",
+          "size": 371,
+          "chip8_db_hash": "064492173cf4ccac3cce8fe307fc164b397013b9"
+        },
+        {
+          "path": "programs/Fishie [Hap, 2005].ch8",
+          "git_sha": "ca1eaf391eaf5595cd4377b948871036fe89d22a",
+          "sha1": "49c7234a1733db355560a13c57b26f055533c233",
+          "size": 160,
+          "chip8_db_hash": "49c7234a1733db355560a13c57b26f055533c233"
+        },
+        {
+          "path": "programs/Framed MK1 [GV Samways, 1980].ch8",
+          "git_sha": "6b9e47d18e0f2a83fe11b977fad479a54e6532d6",
+          "sha1": "ac7c8db7865beb22c9ec9001c9c0319e02f5d5c2",
+          "size": 176,
+          "chip8_db_hash": "ac7c8db7865beb22c9ec9001c9c0319e02f5d5c2"
+        },
+        {
+          "path": "programs/Framed MK2 [GV Samways, 1980].ch8",
+          "git_sha": "c7d093d4850be902cafd68ef8200d60817d722b2",
+          "sha1": "eb72a25bd58e122e65a540807e7a1816abaa4f41",
+          "size": 176,
+          "chip8_db_hash": "eb72a25bd58e122e65a540807e7a1816abaa4f41"
+        },
+        {
+          "path": "programs/IBM Logo.ch8",
+          "git_sha": "113338e67097e0a2ad227e5b79b3a5d1a586a660",
+          "sha1": "1ba58656810b67fd131eb9af3e3987863bf26c90",
+          "size": 132,
+          "chip8_db_hash": "1ba58656810b67fd131eb9af3e3987863bf26c90"
+        },
+        {
+          "path": "programs/Jumping X and O [Harry Kleinberg, 1977].ch8",
+          "git_sha": "d028e54941ee835a7a595691e240ec689bf3bb14",
+          "sha1": "5b29263763be401c31d805bc35a4cd211d552881",
+          "size": 82,
+          "chip8_db_hash": "5b29263763be401c31d805bc35a4cd211d552881"
+        },
+        {
+          "path": "programs/Keypad Test [Hap, 2006].ch8",
+          "git_sha": "c60558ee714cf811ff746caafb09072c03f20b83",
+          "sha1": "0ebc4b92c6059d6193565644fb00108161d03d23",
+          "size": 114,
+          "chip8_db_hash": "0ebc4b92c6059d6193565644fb00108161d03d23"
+        },
+        {
+          "path": "programs/Life [GV Samways, 1980].ch8",
+          "git_sha": "d35039a6534d37db921b3b24a64deb3ceab2f3c9",
+          "sha1": "efa6bc8f1f35baaa16700d68a83dc4919797e2fe",
+          "size": 256,
+          "chip8_db_hash": "efa6bc8f1f35baaa16700d68a83dc4919797e2fe"
+        },
+        {
+          "path": "programs/Minimal game [Revival Studios, 2007].ch8",
+          "git_sha": "b759e918f658e67d15085ab800590c43ffe823de",
+          "sha1": "4a4123320d841ed04d8c1cd2ad6132a06b83dfa0",
+          "size": 85,
+          "chip8_db_hash": "4a4123320d841ed04d8c1cd2ad6132a06b83dfa0"
+        },
+        {
+          "path": "programs/Random Number Test [Matthew Mikolay, 2010].ch8",
+          "git_sha": "c9f79e4c3133a2a5654a735477c23b42baf5b883",
+          "sha1": "f1e036fb93b482b1ddfcb2bc1a4de43c8cf51def",
+          "size": 34,
+          "chip8_db_hash": "f1e036fb93b482b1ddfcb2bc1a4de43c8cf51def"
+        },
+        {
+          "path": "programs/SQRT Test [Sergey Naydenov, 2010].ch8",
+          "git_sha": "56485517d0afb9cfe9d5ab74d3348026dcb2d0aa",
+          "sha1": "2dbb5b53121ec84cb2377fcb645e57cc8b5eaa09",
+          "size": 386,
+          "chip8_db_hash": "2dbb5b53121ec84cb2377fcb645e57cc8b5eaa09"
+        }
+      ],
+      "manifest": null
+    }
+  }
+}

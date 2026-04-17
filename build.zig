@@ -51,4 +51,28 @@ pub fn build(b: *std.Build) void {
     const run_tests = b.addRunArtifact(tests);
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_tests.step);
+
+    // Release-time helper: populate assets/registry_state.json and
+    // assets/chip8_db_cache.json by downloading real repo contents and
+    // chip-8-database entries. Network-heavy — run manually, not on every build.
+    const core_mod_pub = b.addModule("chip8_core", .{
+        .root_source_file = b.path("src/core/core.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const shipped_mod = b.addModule("shipped_state_root", .{
+        .root_source_file = b.path("scripts/generate_shipped_state.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    shipped_mod.addImport("chip8_core", core_mod_pub);
+
+    const shipped_exe = b.addExecutable(.{
+        .name = "generate_shipped_state",
+        .root_module = shipped_mod,
+    });
+    const shipped_run = b.addRunArtifact(shipped_exe);
+    const shipped_step = b.step("shipped-state", "Regenerate assets/registry_state.json and assets/chip8_db_cache.json");
+    shipped_step.dependOn(&shipped_run.step);
 }

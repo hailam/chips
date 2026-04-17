@@ -8,7 +8,7 @@ const STATE_JSON_NAME = "state.json";
 const SAVES_DIR_NAME = "saves";
 const EXPORTS_DIR_NAME = "exports";
 const SAVE_MAGIC = "CH8S";
-const SAVE_VERSION: u32 = 2;
+const SAVE_VERSION: u32 = 3;
 
 pub const DisplayPalette = enum {
     classic_green,
@@ -32,14 +32,14 @@ pub const DisplaySettings = struct {
 pub const RecentRom = struct {
     path: []u8,
     display_name: []u8,
-    sha256_hex: []u8,
+    sha1_hex: []u8,
     last_opened_unix_ms: i64,
 
     fn clone(self: RecentRom, allocator: std.mem.Allocator) !RecentRom {
         return .{
             .path = try allocator.dupe(u8, self.path),
             .display_name = try allocator.dupe(u8, self.display_name),
-            .sha256_hex = try allocator.dupe(u8, self.sha256_hex),
+            .sha1_hex = try allocator.dupe(u8, self.sha1_hex),
             .last_opened_unix_ms = self.last_opened_unix_ms,
         };
     }
@@ -47,13 +47,13 @@ pub const RecentRom = struct {
     fn deinit(self: *RecentRom, allocator: std.mem.Allocator) void {
         allocator.free(self.path);
         allocator.free(self.display_name);
-        allocator.free(self.sha256_hex);
+        allocator.free(self.sha1_hex);
         self.* = undefined;
     }
 };
 
 pub const RomPreferences = struct {
-    sha256_hex: []u8,
+    sha1_hex: []u8,
     last_path: []u8,
     quirk_profile: emulation.QuirkProfile,
     cpu_hz_target: i32,
@@ -61,7 +61,7 @@ pub const RomPreferences = struct {
 
     fn clone(self: RomPreferences, allocator: std.mem.Allocator) !RomPreferences {
         return .{
-            .sha256_hex = try allocator.dupe(u8, self.sha256_hex),
+            .sha1_hex = try allocator.dupe(u8, self.sha1_hex),
             .last_path = try allocator.dupe(u8, self.last_path),
             .quirk_profile = self.quirk_profile,
             .cpu_hz_target = self.cpu_hz_target,
@@ -70,7 +70,7 @@ pub const RomPreferences = struct {
     }
 
     fn deinit(self: *RomPreferences, allocator: std.mem.Allocator) void {
-        allocator.free(self.sha256_hex);
+        allocator.free(self.sha1_hex);
         allocator.free(self.last_path);
         self.* = undefined;
     }
@@ -98,17 +98,17 @@ pub const AppState = struct {
         self.rom_preferences.deinit(self.allocator);
     }
 
-    pub fn findRomPreference(self: *const AppState, sha256_hex: []const u8) ?RomPreferences {
+    pub fn findRomPreference(self: *const AppState, sha1_hex: []const u8) ?RomPreferences {
         for (self.rom_preferences.items) |pref| {
-            if (std.mem.eql(u8, pref.sha256_hex, sha256_hex)) return pref;
+            if (std.mem.eql(u8, pref.sha1_hex, sha1_hex)) return pref;
         }
         return null;
     }
 
-    pub fn upsertRecentRom(self: *AppState, path: []const u8, display_name: []const u8, sha256_hex: []const u8, opened_at_ms: i64) !void {
+    pub fn upsertRecentRom(self: *AppState, path: []const u8, display_name: []const u8, sha1_hex: []const u8, opened_at_ms: i64) !void {
         var existing_index: ?usize = null;
         for (self.recent_roms.items, 0..) |recent, idx| {
-            if (std.mem.eql(u8, recent.sha256_hex, sha256_hex) or std.mem.eql(u8, recent.path, path)) {
+            if (std.mem.eql(u8, recent.sha1_hex, sha1_hex) or std.mem.eql(u8, recent.path, path)) {
                 existing_index = idx;
                 break;
             }
@@ -117,7 +117,7 @@ pub const AppState = struct {
         const record = RecentRom{
             .path = try self.allocator.dupe(u8, path),
             .display_name = try self.allocator.dupe(u8, display_name),
-            .sha256_hex = try self.allocator.dupe(u8, sha256_hex),
+            .sha1_hex = try self.allocator.dupe(u8, sha1_hex),
             .last_opened_unix_ms = opened_at_ms,
         };
 
@@ -135,14 +135,14 @@ pub const AppState = struct {
 
     pub fn upsertRomPreference(
         self: *AppState,
-        sha256_hex: []const u8,
+        sha1_hex: []const u8,
         last_path: []const u8,
         quirk_profile: emulation.QuirkProfile,
         cpu_hz_target: i32,
         last_save_slot: u8,
     ) !void {
         for (self.rom_preferences.items) |*pref| {
-            if (std.mem.eql(u8, pref.sha256_hex, sha256_hex)) {
+            if (std.mem.eql(u8, pref.sha1_hex, sha1_hex)) {
                 self.allocator.free(pref.last_path);
                 pref.last_path = try self.allocator.dupe(u8, last_path);
                 pref.quirk_profile = quirk_profile;
@@ -153,7 +153,7 @@ pub const AppState = struct {
         }
 
         try self.rom_preferences.append(self.allocator, .{
-            .sha256_hex = try self.allocator.dupe(u8, sha256_hex),
+            .sha1_hex = try self.allocator.dupe(u8, sha1_hex),
             .last_path = try self.allocator.dupe(u8, last_path),
             .quirk_profile = quirk_profile,
             .cpu_hz_target = cpu_hz_target,
@@ -163,20 +163,20 @@ pub const AppState = struct {
 };
 
 pub const SaveStateEnvelope = struct {
-    rom_sha256: [32]u8,
+    rom_sha1: [20]u8,
     quirk_profile: emulation.QuirkProfile,
     chip8_state: chip8_mod.Chip8.SaveState,
     cpu_hz_target: i32,
     paused_state: bool,
 };
 
-pub fn computeRomSha256(rom_data: []const u8) [32]u8 {
-    var digest: [32]u8 = undefined;
-    std.crypto.hash.sha2.Sha256.hash(rom_data, &digest, .{});
+pub fn computeRomSha1(rom_data: []const u8) [20]u8 {
+    var digest: [20]u8 = undefined;
+    std.crypto.hash.Sha1.hash(rom_data, &digest, .{});
     return digest;
 }
 
-pub fn sha256HexAlloc(allocator: std.mem.Allocator, hash: [32]u8) ![]u8 {
+pub fn sha1HexAlloc(allocator: std.mem.Allocator, hash: [20]u8) ![]u8 {
     const buf = std.fmt.bytesToHex(&hash, .lower);
     return allocator.dupe(u8, &buf);
 }
@@ -224,7 +224,12 @@ pub fn loadAppState(io: std.Io, allocator: std.mem.Allocator, root_path: []const
     };
     defer allocator.free(contents);
 
-    try deserializeAppState(allocator, contents, &app_state);
+    // Tolerate schema drift from older builds: if the file doesn't match
+    // the current shape, drop it and start fresh rather than failing startup.
+    deserializeAppState(allocator, contents, &app_state) catch {
+        app_state.deinit();
+        return AppState.init(allocator);
+    };
     return app_state;
 }
 
@@ -239,27 +244,27 @@ pub fn saveAppState(io: std.Io, allocator: std.mem.Allocator, root_path: []const
     try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = state_path, .data = writer.written() });
 }
 
-pub fn saveStatePathAlloc(allocator: std.mem.Allocator, root_path: []const u8, sha256_hex: []const u8, slot: u8) ![]u8 {
-    return std.fmt.allocPrint(allocator, "{s}/{s}/{s}/slot-{d:0>2}.bin", .{ root_path, SAVES_DIR_NAME, sha256_hex, slot });
+pub fn saveStatePathAlloc(allocator: std.mem.Allocator, root_path: []const u8, sha1_hex: []const u8, slot: u8) ![]u8 {
+    return std.fmt.allocPrint(allocator, "{s}/{s}/{s}/slot-{d:0>2}.bin", .{ root_path, SAVES_DIR_NAME, sha1_hex, slot });
 }
 
-pub fn sourceExportPathAlloc(allocator: std.mem.Allocator, root_path: []const u8, sha256_hex: []const u8, rom_basename: []const u8) ![]u8 {
-    return std.fmt.allocPrint(allocator, "{s}/{s}/{s}/{s}.asm", .{ root_path, EXPORTS_DIR_NAME, sha256_hex, rom_basename });
+pub fn sourceExportPathAlloc(allocator: std.mem.Allocator, root_path: []const u8, sha1_hex: []const u8, rom_basename: []const u8) ![]u8 {
+    return std.fmt.allocPrint(allocator, "{s}/{s}/{s}/{s}.asm", .{ root_path, EXPORTS_DIR_NAME, sha1_hex, rom_basename });
 }
 
 pub fn saveEnvelopeToFile(
     io: std.Io,
     allocator: std.mem.Allocator,
     root_path: []const u8,
-    sha256_hex: []const u8,
+    sha1_hex: []const u8,
     slot: u8,
     envelope: *const SaveStateEnvelope,
 ) !void {
-    const save_dir = try std.fmt.allocPrint(allocator, "{s}/{s}/{s}", .{ root_path, SAVES_DIR_NAME, sha256_hex });
+    const save_dir = try std.fmt.allocPrint(allocator, "{s}/{s}/{s}", .{ root_path, SAVES_DIR_NAME, sha1_hex });
     defer allocator.free(save_dir);
     try std.Io.Dir.cwd().createDirPath(io, save_dir);
 
-    const save_path = try saveStatePathAlloc(allocator, root_path, sha256_hex, slot);
+    const save_path = try saveStatePathAlloc(allocator, root_path, sha1_hex, slot);
     defer allocator.free(save_path);
 
     var writer: std.Io.Writer.Allocating = .init(allocator);
@@ -272,10 +277,10 @@ pub fn loadEnvelopeFromFile(
     io: std.Io,
     allocator: std.mem.Allocator,
     root_path: []const u8,
-    sha256_hex: []const u8,
+    sha1_hex: []const u8,
     slot: u8,
 ) !SaveStateEnvelope {
-    const save_path = try saveStatePathAlloc(allocator, root_path, sha256_hex, slot);
+    const save_path = try saveStatePathAlloc(allocator, root_path, sha1_hex, slot);
     defer allocator.free(save_path);
     const bytes = try std.Io.Dir.cwd().readFileAlloc(io, save_path, allocator, .limited(2 * 1024 * 1024));
     defer allocator.free(bytes);
@@ -302,7 +307,10 @@ pub fn deserializeAppState(allocator: std.mem.Allocator, bytes: []const u8, app_
         global_settings: DisplaySettings = .{},
     };
 
-    var parsed = try std.json.parseFromSlice(ParsedState, allocator, bytes, .{});
+    var parsed = try std.json.parseFromSlice(ParsedState, allocator, bytes, .{
+        .ignore_unknown_fields = true,
+        .allocate = .alloc_always,
+    });
     defer parsed.deinit();
 
     app_state.global_settings = parsed.value.global_settings;
@@ -317,7 +325,7 @@ pub fn deserializeAppState(allocator: std.mem.Allocator, bytes: []const u8, app_
 pub fn serializeSaveStateEnvelope(envelope: *const SaveStateEnvelope, writer: *std.Io.Writer) !void {
     try writer.writeAll(SAVE_MAGIC);
     try writer.writeInt(u32, SAVE_VERSION, .little);
-    try writer.writeAll(&envelope.rom_sha256);
+    try writer.writeAll(&envelope.rom_sha1);
     try writer.writeByte(@intFromEnum(envelope.quirk_profile));
     try writer.writeInt(i32, envelope.cpu_hz_target, .little);
     try writer.writeByte(if (envelope.paused_state) 1 else 0);
@@ -334,15 +342,15 @@ pub fn deserializeSaveStateEnvelope(bytes: []const u8) !SaveStateEnvelope {
     const version = try reader.takeInt(u32, .little);
     if (version != SAVE_VERSION) return error.UnsupportedSaveStateVersion;
 
-    var rom_sha256: [32]u8 = undefined;
-    try reader.readSliceAll(&rom_sha256);
+    var rom_sha1: [20]u8 = undefined;
+    try reader.readSliceAll(&rom_sha1);
     const quirk_profile = emulation.profileFromByte(try reader.takeByte()) orelse return error.InvalidSaveStateProfile;
     const cpu_hz_target = try reader.takeInt(i32, .little);
     const paused_state = (try reader.takeByte()) != 0;
     const chip8_state = try chip8_mod.Chip8.readSaveState(&reader);
 
     return .{
-        .rom_sha256 = rom_sha256,
+        .rom_sha1 = rom_sha1,
         .quirk_profile = quirk_profile,
         .chip8_state = chip8_state,
         .cpu_hz_target = cpu_hz_target,

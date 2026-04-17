@@ -24,9 +24,14 @@ pub const Command = union(enum) {
     update: struct {
         id: ?[]const u8,
     },
-    refresh: struct {},
+    refresh: RefreshCommand,
     registries: struct {},
-    sync: struct {},
+    init_manifest: struct {
+        path: ?[]const u8,
+    },
+    validate_manifest: struct {
+        path: ?[]const u8,
+    },
     help: struct {},
 };
 
@@ -39,6 +44,11 @@ pub const DisasmCommand = struct {
     rom_path: []const u8,
     output_path: ?[]const u8,
     profile: ?emulation.QuirkProfile,
+};
+
+pub const RefreshCommand = struct {
+    registry_name: ?[]const u8 = null,
+    db_only: bool = false,
 };
 
 pub const ParseError = error{
@@ -81,6 +91,7 @@ pub fn parseArgs(args: []const []const u8) ParseError!Command {
         return .{ .search = .{ .query = args[1] } };
     }
     if (std.mem.eql(u8, args[0], "list")) {
+        if (args.len != 1) return error.UnexpectedArgument;
         return .{ .list = .{} };
     }
     if (std.mem.eql(u8, args[0], "remove")) {
@@ -91,16 +102,35 @@ pub fn parseArgs(args: []const []const u8) ParseError!Command {
         return .{ .update = .{ .id = if (args.len > 1) args[1] else null } };
     }
     if (std.mem.eql(u8, args[0], "refresh")) {
-        return .{ .refresh = .{} };
+        return .{ .refresh = try parseRefreshArgs(args[1..]) };
     }
     if (std.mem.eql(u8, args[0], "registries")) {
+        if (args.len != 1) return error.UnexpectedArgument;
         return .{ .registries = .{} };
     }
-    if (std.mem.eql(u8, args[0], "sync")) {
-        return .{ .sync = .{} };
+    if (std.mem.eql(u8, args[0], "init")) {
+        return .{ .init_manifest = .{ .path = if (args.len > 1) args[1] else null } };
+    }
+    if (std.mem.eql(u8, args[0], "validate")) {
+        return .{ .validate_manifest = .{ .path = if (args.len > 1) args[1] else null } };
     }
 
     return .{ .run = try parseRunArgs(args) };
+}
+
+fn parseRefreshArgs(args: []const []const u8) ParseError!RefreshCommand {
+    var cmd: RefreshCommand = .{};
+    for (args) |arg| {
+        if (std.mem.eql(u8, arg, "--db")) {
+            cmd.db_only = true;
+        } else if (std.mem.startsWith(u8, arg, "-")) {
+            return error.UnexpectedArgument;
+        } else {
+            if (cmd.registry_name != null) return error.UnexpectedArgument;
+            cmd.registry_name = arg;
+        }
+    }
+    return cmd;
 }
 
 pub fn defaultAsmOutputPathAlloc(allocator: std.mem.Allocator, source_path: []const u8) ![]u8 {
@@ -121,18 +151,22 @@ pub fn usage() []const u8 {
     return
         \\Usage:
         \\  chip8 run [rom.ch8] [--profile modern|vip_legacy|schip_11|xo_chip|octo_xo]
-        \\  chip8 <rom.ch8> [--profile modern|vip_legacy|schip_11|xo_chip|octo_xo]
-        \\  chip8 disasm <rom.ch8> [-o output.asm] [--profile modern|vip_legacy|schip_11|xo_chip|octo_xo]
+        \\  chip8 <rom.ch8> [--profile ...]
+        \\  chip8 disasm <rom.ch8> [-o output.asm] [--profile ...]
         \\  chip8 asm <source.asm> [-o output.ch8]
         \\  chip8 check <source.asm>
-        \\  chip8 get <source>
-        \\  chip8 search <query>
-        \\  chip8 list
-        \\  chip8 remove <id>
-        \\  chip8 update [<id>]
-        \\  chip8 refresh
-        \\  chip8 registries
-        \\  chip8 sync
+        \\  chip8 get <source>              # install ROM from URL, repo, registry, or local path
+        \\  chip8 search <query>            # offline search across known registries
+        \\  chip8 list                      # list installed ROMs
+        \\  chip8 remove <id>               # delete a ROM and its sidecar
+        \\  chip8 update [<id>]             # re-fetch one or all installed ROMs
+        \\  chip8 refresh [<registry>]      # resync registry state; `--db` refreshes chip-8-database cache
+        \\  chip8 registries                # list configured known registries
+        \\  chip8 init [path]               # scaffold a chip8.json in a directory
+        \\  chip8 validate [path]           # validate a chip8.json against the spec
+        \\
+        \\Environment:
+        \\  GITHUB_TOKEN  Optional. Lifts GitHub API rate limits (60/hr → 5000/hr).
     ;
 }
 
