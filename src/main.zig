@@ -76,7 +76,7 @@ fn runCommand(init: std.process.Init, command: cli.Command) !void {
         .disasm => |cmd| try runDisasmCommand(init, cmd.rom_path, cmd.output_path, cmd.profile),
         .assemble => |cmd| try runAssembleCommand(init, cmd.source_path, cmd.output_path),
         .check => |cmd| try runCheckCommand(init, cmd.source_path),
-        .get => |cmd| try runGetCommand(init, cmd.source),
+        .get => |cmd| try runGetCommand(init, cmd.source, cmd.launch),
         .search => |cmd| try runSearchCommand(init, cmd.query),
         .list => try runListCommand(init),
         .remove => |cmd| try runRemoveCommand(init, cmd.id),
@@ -863,7 +863,7 @@ fn resolveToken(init: std.process.Init, config: config_mod.Config) !?[]const u8 
     return try github_mod.resolveToken(init.gpa, init.minimal.environ, config.github_token);
 }
 
-fn runGetCommand(init: std.process.Init, source: []const u8) !void {
+fn runGetCommand(init: std.process.Init, source: []const u8, launch: bool) !void {
     const app_data_root = try persistence.defaultAppDataRootAlloc(init.gpa, init.minimal.environ);
     defer init.gpa.free(app_data_root);
 
@@ -910,6 +910,13 @@ fn runGetCommand(init: std.process.Init, source: []const u8) !void {
     std.debug.print("Successfully installed {s} to {s}\n", .{ installed.metadata.id, installed.local.path });
     if (installed.metadata.chip8_db_entry) |e| {
         std.debug.print("  {s} ({s})\n", .{ e.title, e.release });
+    }
+
+    if (launch) {
+        // Dupe the path before `installed` is freed by its defer.
+        const launch_path = try init.gpa.dupe(u8, installed.local.path);
+        defer init.gpa.free(launch_path);
+        try runGui(init, launch_path, null);
     }
 }
 

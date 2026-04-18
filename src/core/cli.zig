@@ -13,6 +13,7 @@ pub const Command = union(enum) {
     },
     get: struct {
         source: []const u8,
+        launch: bool = false,
     },
     search: struct {
         query: []const u8,
@@ -83,8 +84,7 @@ pub fn parseArgs(args: []const []const u8) ParseError!Command {
         return .{ .check = .{ .source_path = args[1] } };
     }
     if (std.mem.eql(u8, args[0], "get")) {
-        if (args.len < 2) return error.MissingOperand;
-        return .{ .get = .{ .source = args[1] } };
+        return .{ .get = try parseGetArgs(args[1..]) };
     }
     if (std.mem.eql(u8, args[0], "search")) {
         if (args.len < 2) return error.MissingOperand;
@@ -116,6 +116,21 @@ pub fn parseArgs(args: []const []const u8) ParseError!Command {
     }
 
     return .{ .run = try parseRunArgs(args) };
+}
+
+fn parseGetArgs(args: []const []const u8) ParseError!@FieldType(Command, "get") {
+    var source: ?[]const u8 = null;
+    var launch: bool = false;
+    for (args) |arg| {
+        if (std.mem.eql(u8, arg, "--launch")) {
+            launch = true;
+            continue;
+        }
+        if (std.mem.startsWith(u8, arg, "-")) return error.UnexpectedArgument;
+        if (source != null) return error.UnexpectedArgument;
+        source = arg;
+    }
+    return .{ .source = source orelse return error.MissingOperand, .launch = launch };
 }
 
 fn parseRefreshArgs(args: []const []const u8) ParseError!RefreshCommand {
@@ -155,7 +170,7 @@ pub fn usage() []const u8 {
         \\  chip8 disasm <rom.ch8> [-o output.asm] [--profile ...]
         \\  chip8 asm <source.asm> [-o output.ch8]
         \\  chip8 check <source.asm>
-        \\  chip8 get <source>              # install ROM from URL, repo, registry, or local path
+        \\  chip8 get <source> [--launch]   # install ROM (and optionally launch it immediately)
         \\  chip8 search <query>            # offline search across known registries
         \\  chip8 list                      # list installed ROMs
         \\  chip8 remove <id>               # delete a ROM and its sidecar
