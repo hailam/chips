@@ -114,12 +114,13 @@ pub const InstalledRom = struct {
         repo_file: RepoFile,
         repo_glob: RepoGlob,
         manifest_entry: ManifestEntry,
-        known_registry: []const u8,
+        known_registry: KnownRegistryEntry,
         local_import: []const u8,
 
         pub const RepoFile = struct { user: []const u8, repo: []const u8, path: []const u8 };
         pub const RepoGlob = struct { user: []const u8, repo: []const u8, pattern: []const u8 };
         pub const ManifestEntry = struct { user: []const u8, repo: []const u8, id: []const u8 };
+        pub const KnownRegistryEntry = struct { name: []const u8, user: []const u8, repo: []const u8, path: []const u8 };
 
         pub fn clone(self: Source, allocator: std.mem.Allocator) !Source {
             return switch (self) {
@@ -139,7 +140,12 @@ pub const InstalledRom = struct {
                     .repo = try allocator.dupe(u8, v.repo),
                     .id = try allocator.dupe(u8, v.id),
                 } },
-                .known_registry => |v| .{ .known_registry = try allocator.dupe(u8, v) },
+                .known_registry => |v| .{ .known_registry = .{
+                    .name = try allocator.dupe(u8, v.name),
+                    .user = try allocator.dupe(u8, v.user),
+                    .repo = try allocator.dupe(u8, v.repo),
+                    .path = try allocator.dupe(u8, v.path),
+                } },
                 .local_import => |v| .{ .local_import = try allocator.dupe(u8, v) },
             };
         }
@@ -162,7 +168,12 @@ pub const InstalledRom = struct {
                     allocator.free(v.repo);
                     allocator.free(v.id);
                 },
-                .known_registry => |v| allocator.free(v),
+                .known_registry => |v| {
+                    allocator.free(v.name);
+                    allocator.free(v.user);
+                    allocator.free(v.repo);
+                    allocator.free(v.path);
+                },
                 .local_import => |v| allocator.free(v),
             }
         }

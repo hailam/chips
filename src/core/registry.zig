@@ -43,48 +43,106 @@ pub fn listInstalled(io: std.Io, allocator: std.mem.Allocator, app_data_root: []
     const installed_dir_path = try std.fmt.allocPrint(allocator, "{s}/installed_roms", .{app_data_root});
     defer allocator.free(installed_dir_path);
 
-    var dir = std.Io.Dir.cwd().openDir(io, installed_dir_path, .{ .iterate = true }) catch |err| switch (err) {
-        error.FileNotFound => return &.{},
-        else => return err,
-    };
-    defer dir.close(io);
-
     var results: std.ArrayList(models.InstalledRom) = .empty;
     errdefer {
         for (results.items) |r| r.deinit(allocator);
         results.deinit(allocator);
     }
 
-    var it = dir.iterate();
-    while (try it.next(io)) |entry| {
-        if (entry.kind == .file and std.mem.endsWith(u8, entry.name, ".json")) {
-            const data = dir.readFileAlloc(io, entry.name, allocator, .limited(1 * 1024 * 1024)) catch continue;
-            defer allocator.free(data);
-
-            // Skip sidecars that don't match the current schema (e.g. left over
-            // from an earlier version) instead of failing the whole listing.
-            const parsed = std.json.parseFromSlice(models.InstalledRom, allocator, data, .{ .ignore_unknown_fields = true }) catch continue;
-            defer parsed.deinit();
-
-            try results.append(allocator, try parsed.value.clone(allocator));
-        }
-    }
-
+    try collectSidecars(io, allocator, installed_dir_path, &results);
     return results.toOwnedSlice(allocator);
 }
 
+fn collectSidecars(
+    io: std.Io,
+    allocator: std.mem.Allocator,
+    dir_path: []const u8,
+    results: *std.ArrayList(models.InstalledRom),
+) !void {
+    var dir = std.Io.Dir.cwd().openDir(io, dir_path, .{ .iterate = true }) catch |err| switch (err) {
+        error.FileNotFound => return,
+        else => return err,
+    };
+    defer dir.close(io);
+
+    var it = dir.iterate();
+    while (try it.next(io)) |entry| {
+        if (entry.kind == .directory) {
+            // Registry-namespaced subdirectory (e.g. installed_roms/kripod/).
+            const sub = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ dir_path, entry.name });
+            defer allocator.free(sub);
+            try collectSidecars(io, allocator, sub, results);
+            continue;
+        }
+        if (entry.kind != .file) continue;
+        if (!std.mem.endsWith(u8, entry.name, ".json")) continue;
+
+        const data = dir.readFileAlloc(io, entry.name, allocator, .limited(1 * 1024 * 1024)) catch continue;
+        defer allocator.free(data);
+
+        // Skip sidecars that don't match the current schema (e.g. left over
+        // from an earlier version) instead of failing the whole listing.
+        const parsed = std.json.parseFromSlice(models.InstalledRom, allocator, data, .{ .ignore_unknown_fields = true }) catch continue;
+        defer parsed.deinit();
+
+        try results.append(allocator, try parsed.value.clone(allocator));
+    }
+}
+
+// Remove by id. Accepts:
+//   - "<id>"                 → matches any installed ROM with that id
+//   - "<registry>:<id>"      → matches only if installed from that registry
+// Returns error.NotFound if nothing matched, error.AmbiguousQuery if multiple
+// registries have the same id and the caller didn't namespace the request.
 pub fn remove(io: std.Io, allocator: std.mem.Allocator, id: []const u8, app_data_root: []const u8) !void {
-    const installed_dir = try std.fmt.allocPrint(allocator, "{s}/installed_roms", .{app_data_root});
-    defer allocator.free(installed_dir);
+    const installed = try listInstalled(io, allocator, app_data_root);
+    defer {
+        for (installed) |r| r.deinit(allocator);
+        allocator.free(installed);
+    }
 
-    const rom_path = try std.fmt.allocPrint(allocator, "{s}/{s}.ch8", .{ installed_dir, id });
-    defer allocator.free(rom_path);
+    const requested = parseQualifiedId(id);
+    var match: ?models.InstalledRom = null;
+    var multiple = false;
+    for (installed) |rom| {
+        if (!std.mem.eql(u8, rom.metadata.id, requested.id)) continue;
+        if (requested.registry) |want| {
+            const ns = installedRegistryName(rom) orelse continue;
+            if (!std.mem.eql(u8, ns, want)) continue;
+        }
+        if (match != null) {
+            multiple = true;
+            break;
+        }
+        match = rom;
+    }
 
-    const sidecar_path = try std.fmt.allocPrint(allocator, "{s}/{s}.json", .{ installed_dir, id });
+    if (multiple) return error.AmbiguousQuery;
+    const target = match orelse return error.NotFound;
+
+    // Derive sidecar path from rom path (…/<id>.ch8 → …/<id>.json).
+    const rom_path = target.local.path;
+    const sidecar_path = try std.fmt.allocPrint(allocator, "{s}.json", .{rom_path[0 .. rom_path.len - 4]});
     defer allocator.free(sidecar_path);
 
     std.Io.Dir.cwd().deleteFile(io, rom_path) catch {};
     std.Io.Dir.cwd().deleteFile(io, sidecar_path) catch {};
+}
+
+pub const QualifiedId = struct { registry: ?[]const u8, id: []const u8 };
+
+pub fn parseQualifiedId(input: []const u8) QualifiedId {
+    if (std.mem.indexOfScalar(u8, input, ':')) |idx| {
+        return .{ .registry = input[0..idx], .id = input[idx + 1 ..] };
+    }
+    return .{ .registry = null, .id = input };
+}
+
+pub fn installedRegistryName(rom: models.InstalledRom) ?[]const u8 {
+    return switch (rom.local.source) {
+        .known_registry => |v| v.name,
+        else => null,
+    };
 }
 
 // --- search (offline, over state) -----------------------------------------
@@ -323,7 +381,7 @@ fn tryInstallMatch(ctx: *InstallContext, reg: models.KnownRegistry, query: []con
     defer ctx.allocator.free(path_dup);
     const dl_dup = if (snapshot.download_url) |d| try ctx.allocator.dupe(u8, d) else null;
     defer if (dl_dup) |d| ctx.allocator.free(d);
-    return try installRepoFileAt(ctx, reg.repo_user(), reg.repo_name(), path_dup, dl_dup, null);
+    return try installRepoFileAt(ctx, reg.repo_user(), reg.repo_name(), path_dup, dl_dup, null, reg.name);
 }
 
 const MatchSnapshot = struct {
@@ -347,7 +405,10 @@ fn findMatchSnapshot(state: *const state_mod.State, reg_name: []const u8, query:
 }
 
 // Like installRepoFile but prefers a caller-supplied raw download URL (from
-// GitHub's contents API) so we avoid guessing at branch names.
+// GitHub's contents API) so we avoid guessing at branch names. When
+// `registry_name` is provided, the install is attributed to that registry
+// (shown in listings; sidecar namespaced to avoid collisions between
+// registries that happen to ship the same filename).
 fn installRepoFileAt(
     ctx: *InstallContext,
     user: []const u8,
@@ -355,6 +416,7 @@ fn installRepoFileAt(
     path: []const u8,
     download_url: ?[]const u8,
     expected_sha1: ?[]const u8,
+    registry_name: ?[]const u8,
 ) RegistryError!models.InstalledRom {
     const raw_url = if (download_url) |d|
         try ctx.allocator.dupe(u8, d)
@@ -370,14 +432,20 @@ fn installRepoFileAt(
     const source_url = try std.fmt.allocPrint(ctx.allocator, "https://github.com/{s}/{s}/blob/HEAD/{s}", .{ user, repo, path });
     defer ctx.allocator.free(source_url);
 
+    const source: models.InstalledRom.Source = if (registry_name) |reg_name|
+        .{ .known_registry = .{ .name = reg_name, .user = user, .repo = repo, .path = path } }
+    else
+        .{ .repo_file = .{ .user = user, .repo = repo, .path = path } };
+
     return try writeInstalled(ctx, .{
         .id = id,
         .file = base,
         .source_url = source_url,
         .raw_url = raw_url,
         .bytes = data,
-        .source = .{ .repo_file = .{ .user = user, .repo = repo, .path = path } },
+        .source = source,
         .expected_sha1 = expected_sha1,
+        .namespace = registry_name,
     });
 }
 
@@ -501,6 +569,9 @@ const WriteParams = struct {
     bytes: []const u8,
     source: models.InstalledRom.Source,
     expected_sha1: ?[]const u8,
+    // When set, files are written under installed_roms/<namespace>/ so two
+    // registries shipping the same filename don't collide on disk.
+    namespace: ?[]const u8 = null,
 };
 
 fn writeInstalled(ctx: *InstallContext, params: WriteParams) RegistryError!models.InstalledRom {
@@ -512,7 +583,10 @@ fn writeInstalled(ctx: *InstallContext, params: WriteParams) RegistryError!model
         if (!std.mem.eql(u8, expected, sha1_hex)) return error.ChecksumMismatch;
     }
 
-    const installed_dir = try std.fmt.allocPrint(ctx.allocator, "{s}/installed_roms", .{ctx.app_data_root});
+    const installed_dir = if (params.namespace) |ns|
+        try std.fmt.allocPrint(ctx.allocator, "{s}/installed_roms/{s}", .{ ctx.app_data_root, ns })
+    else
+        try std.fmt.allocPrint(ctx.allocator, "{s}/installed_roms", .{ctx.app_data_root});
     defer ctx.allocator.free(installed_dir);
     std.Io.Dir.cwd().createDirPath(ctx.io, installed_dir) catch return error.IoError;
 
@@ -570,19 +644,32 @@ fn writeInstalled(ctx: *InstallContext, params: WriteParams) RegistryError!model
 // --- update ---------------------------------------------------------------
 
 pub fn update(ctx: *InstallContext, id: []const u8) RegistryError!models.InstalledRom {
-    const installed_dir = try std.fmt.allocPrint(ctx.allocator, "{s}/installed_roms", .{ctx.app_data_root});
-    defer ctx.allocator.free(installed_dir);
+    // Find the sidecar via listInstalled (handles namespaced subdirs and
+    // `<registry>:<id>` qualification).
+    const installed = listInstalled(ctx.io, ctx.allocator, ctx.app_data_root) catch return error.IoError;
+    defer {
+        for (installed) |r| r.deinit(ctx.allocator);
+        ctx.allocator.free(installed);
+    }
+    const requested = parseQualifiedId(id);
+    var match: ?models.InstalledRom = null;
+    var multiple = false;
+    for (installed) |rom| {
+        if (!std.mem.eql(u8, rom.metadata.id, requested.id)) continue;
+        if (requested.registry) |want| {
+            const ns = installedRegistryName(rom) orelse continue;
+            if (!std.mem.eql(u8, ns, want)) continue;
+        }
+        if (match != null) {
+            multiple = true;
+            break;
+        }
+        match = rom;
+    }
+    if (multiple) return error.AmbiguousQuery;
+    const target = match orelse return error.NotFound;
 
-    const sidecar_path = try std.fmt.allocPrint(ctx.allocator, "{s}/{s}.json", .{ installed_dir, id });
-    defer ctx.allocator.free(sidecar_path);
-
-    const bytes = std.Io.Dir.cwd().readFileAlloc(ctx.io, sidecar_path, ctx.allocator, .limited(1 * 1024 * 1024)) catch return error.NotFound;
-    defer ctx.allocator.free(bytes);
-
-    const parsed = std.json.parseFromSlice(models.InstalledRom, ctx.allocator, bytes, .{ .ignore_unknown_fields = true }) catch return error.InvalidManifest;
-    defer parsed.deinit();
-
-    const source = parsed.value.local.source;
+    const source = target.local.source;
     const source_url: url_mod.SourceUrl = switch (source) {
         .direct_url => |u| .{ .direct_url = try ctx.allocator.dupe(u8, u) },
         .repo_file => |v| .{ .repo_file = .{
@@ -603,9 +690,9 @@ pub fn update(ctx: *InstallContext, id: []const u8) RegistryError!models.Install
             .repo = try ctx.allocator.dupe(u8, v.repo),
             .id = try ctx.allocator.dupe(u8, v.id),
         } },
-        .known_registry => |n| .{ .registry_shorthand = .{
-            .name = try ctx.allocator.dupe(u8, n),
-            .query = try ctx.allocator.dupe(u8, id),
+        .known_registry => |v| .{ .registry_shorthand = .{
+            .name = try ctx.allocator.dupe(u8, v.name),
+            .query = try ctx.allocator.dupe(u8, parseQualifiedId(id).id),
         } },
         .local_import => |p| .{ .local_file = try ctx.allocator.dupe(u8, p) },
     };

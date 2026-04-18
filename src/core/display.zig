@@ -1348,8 +1348,15 @@ fn renderRecentRomOverlay(
         if (is_selected) rl.drawRectangle(panel.x + 8, cy - 1, panel.w - 16, layout.LINE_H, HIGHLIGHT_CURRENT);
 
         const title = if (rom.metadata.chip8_db_entry) |e| e.title else rom.metadata.id;
-        var line_buf: [160]u8 = undefined;
-        const line = std.fmt.bufPrint(&line_buf, "* {s}  ({s})", .{ title, rom.metadata.id }) catch rom.metadata.id;
+        var line_buf: [192]u8 = undefined;
+        const ns_opt: ?[]const u8 = switch (rom.local.source) {
+            .known_registry => |v| v.name,
+            else => null,
+        };
+        const line = if (ns_opt) |ns|
+            std.fmt.bufPrint(&line_buf, "* {s}:{s}  ({s})", .{ ns, rom.metadata.id, title }) catch rom.metadata.id
+        else
+            std.fmt.bufPrint(&line_buf, "* {s}  ({s})", .{ rom.metadata.id, title }) catch rom.metadata.id;
         drawTextFit(panel.x + 12, cy, panel.w - 24, line, layout.FONT_SIZE, if (is_selected) TEXT_BRIGHT else TEXT_MID);
         cy += layout.LINE_H;
         cursor += 1;

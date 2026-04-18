@@ -135,17 +135,11 @@ fn resolveRomPathAlloc(
         return try allocator.dupe(u8, arg);
     } else |_| {}
 
-    // Fall back to installed_roms/<arg>.ch8, then installed_roms/<arg>.
-    {
-        const candidate = try std.fmt.allocPrint(allocator, "{s}/installed_roms/{s}.ch8", .{ app_data_root, arg });
-        if (std.Io.Dir.cwd().statFile(io, candidate, .{})) |_| {
-            return candidate;
-        } else |_| {
-            allocator.free(candidate);
-        }
-    }
-    {
-        const candidate = try std.fmt.allocPrint(allocator, "{s}/installed_roms/{s}", .{ app_data_root, arg });
+    const qualified = registry.parseQualifiedId(arg);
+
+    // Namespaced form: `<registry>:<id>` → installed_roms/<registry>/<id>.ch8.
+    if (qualified.registry) |ns| {
+        const candidate = try std.fmt.allocPrint(allocator, "{s}/installed_roms/{s}/{s}.ch8", .{ app_data_root, ns, qualified.id });
         if (std.Io.Dir.cwd().statFile(io, candidate, .{})) |_| {
             return candidate;
         } else |_| {
@@ -153,9 +147,47 @@ fn resolveRomPathAlloc(
         }
     }
 
+    // Bare id: try root installed_roms/ first, then scan every namespaced
+    // subdirectory for a matching sidecar. Ambiguous hits fall through to the
+    // first one (listing is still available via `chip8 list`).
+    {
+        const candidate = try std.fmt.allocPrint(allocator, "{s}/installed_roms/{s}.ch8", .{ app_data_root, qualified.id });
+        if (std.Io.Dir.cwd().statFile(io, candidate, .{})) |_| {
+            return candidate;
+        } else |_| {
+            allocator.free(candidate);
+        }
+    }
+    if (try lookupInstalledByBareId(io, allocator, app_data_root, qualified.id)) |p| return p;
+
     // Nothing matched — return the original so the downstream caller surfaces
     // the "file not found" error naturally.
     return try allocator.dupe(u8, arg);
+}
+
+fn lookupInstalledByBareId(
+    io: std.Io,
+    allocator: std.mem.Allocator,
+    app_data_root: []const u8,
+    id: []const u8,
+) !?[]u8 {
+    const installed_dir = try std.fmt.allocPrint(allocator, "{s}/installed_roms", .{app_data_root});
+    defer allocator.free(installed_dir);
+
+    var dir = std.Io.Dir.cwd().openDir(io, installed_dir, .{ .iterate = true }) catch return null;
+    defer dir.close(io);
+
+    var it = dir.iterate();
+    while (try it.next(io)) |entry| {
+        if (entry.kind != .directory) continue;
+        const candidate = try std.fmt.allocPrint(allocator, "{s}/{s}/{s}.ch8", .{ installed_dir, entry.name, id });
+        if (std.Io.Dir.cwd().statFile(io, candidate, .{})) |_| {
+            return candidate;
+        } else |_| {
+            allocator.free(candidate);
+        }
+    }
+    return null;
 }
 
 fn runGui(init: std.process.Init, initial_rom_path: ?[]const u8, requested_profile: ?emulation.QuirkProfile) !void {
@@ -907,7 +939,11 @@ fn runGetCommand(init: std.process.Init, source: []const u8, launch: bool) !void
     try state_mod.saveState(init.io, init.gpa, app_data_root, &state);
     try chip8_db_cache.save(init.io, init.gpa, app_data_root, &db_cache);
 
-    std.debug.print("Successfully installed {s} to {s}\n", .{ installed.metadata.id, installed.local.path });
+    if (registry.installedRegistryName(installed)) |ns| {
+        std.debug.print("Installed {s}:{s}  (run with: chip8 {s}:{s})\n", .{ ns, installed.metadata.id, ns, installed.metadata.id });
+    } else {
+        std.debug.print("Installed {s}  (run with: chip8 {s})\n", .{ installed.metadata.id, installed.metadata.id });
+    }
     if (installed.metadata.chip8_db_entry) |e| {
         std.debug.print("  {s} ({s})\n", .{ e.title, e.release });
     }
@@ -961,10 +997,14 @@ fn runListCommand(init: std.process.Init) !void {
         return;
     }
 
-    std.debug.print("Installed ROMs:\n", .{});
+    std.debug.print("Installed ROMs  (run with: chip8 <launch-id>)\n", .{});
     for (installed) |rom| {
         const title = if (rom.metadata.chip8_db_entry) |e| e.title else rom.metadata.file;
-        std.debug.print("  - {s}  ({s})\n", .{ rom.metadata.id, title });
+        if (registry.installedRegistryName(rom)) |ns| {
+            std.debug.print("  {s}:{s}  ({s})\n", .{ ns, rom.metadata.id, title });
+        } else {
+            std.debug.print("  {s}  ({s})\n", .{ rom.metadata.id, title });
+        }
     }
 }
 
