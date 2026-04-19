@@ -135,28 +135,122 @@ pub fn analyzeRomForProfile(profile: emulation.QuirkProfile, rom_bytes: []const 
 }
 
 pub fn inferProfile(rom_bytes: []const u8) emulation.QuirkProfile {
+    return inferProfileDetailed(rom_bytes).profile;
+}
+
+pub const InferenceResult = struct {
+    profile: emulation.QuirkProfile,
+    confidence: f32, // 0.0 (fallback guess) – 1.0 (unambiguous marker seen)
+    reasoning: []const u8, // static string, no allocation
+    // chip-8-database platform id, when we can pin one down. Useful for the
+    // verification harness and runtime notification. null = "couldn't say".
+    platform_id: ?[]const u8 = null,
+};
+
+// Extended inference that also reports *why* a profile was chosen and how
+// confident we are. Used by the runtime config resolver and by the
+// inference audit; callers that only want the profile should stick with
+// inferProfile.
+//
+// Heuristic v2 (tuned against the inference audit):
+//   - XO-CHIP markers are usually unambiguous — one strong marker is enough.
+//   - SCHIP markers are prone to false positives from sprite data that
+//     happens to decode as SCHIP-only opcodes. Require ≥2 markers (or
+//     one unambiguously high-signal one) before classifying as SCHIP.
+//   - With no extension markers, default to originalChip8 (VIP), not
+//     modernChip8 — the chip-8-database classifies most untagged ROMs
+//     as originalChip8, so we agree with the oracle more often.
+pub fn inferProfileDetailed(rom_bytes: []const u8) InferenceResult {
     const rom_len = @min(rom_bytes.len, cpu.CHIP8_MEMORY_SIZE - @as(usize, ROM_START));
     var rom_memory = [_]u8{0} ** cpu.CHIP8_MEMORY_SIZE;
     @memcpy(rom_memory[ROM_START .. ROM_START + rom_len], rom_bytes[0..rom_len]);
 
-    var saw_schip = false;
+    var weak_schip_count: u32 = 0; // scroll ops, DXY0 sprites — common in data
+    var strong_schip_count: u32 = 0; // exit/low/high/font/RPL — less common as data
+    var schip_reason: []const u8 = "";
     var offset: usize = 0;
     while (offset + 1 < rom_len) {
         const addr: u16 = @intCast(ROM_START + offset);
         const raw_opcode = @as(u16, rom_memory[addr]) << 8 | @as(u16, rom_memory[addr + 1]);
-        if (raw_opcode == 0xF000 and offset + 3 < rom_len) return .octo_xo;
+        if (raw_opcode == 0xF000 and offset + 3 < rom_len) {
+            return .{
+                .profile = .octo_xo,
+                .confidence = 0.95,
+                .reasoning = "F000 long-load prefix (XO-CHIP marker)",
+                .platform_id = "xochip",
+            };
+        }
         const decoded = cpu.DecodedInstruction.decode(&rom_memory, addr);
+        // Stop scanning past a terminal jump (JP to self / JP backward).
+        // Anything after that is unreachable code — almost always sprite
+        // data. Without this, sprite bytes like `00 FF` trigger false
+        // strong-SCHIP matches (HIGH opcode).
+        if (decoded.instruction == .jmp) {
+            const target = decoded.instruction.jmp;
+            if (target <= addr) {
+                break;
+            }
+        }
         switch (decoded.instruction) {
-            .scu, .save_range, .load_range, .ld_i_long, .plane, .audio, .ld_pitch_vx => return .octo_xo,
-            .scd, .scr, .scl, .exit, .low, .high, .ld_hf_vx, .ld_r_vx, .ld_vx_r => saw_schip = true,
+            .scu, .save_range, .load_range, .ld_i_long, .plane, .audio, .ld_pitch_vx => {
+                return .{
+                    .profile = .octo_xo,
+                    .confidence = 0.95,
+                    .reasoning = "XO-CHIP-only opcode present",
+                    .platform_id = "xochip",
+                };
+            },
+            .exit, .low, .high, .ld_hf_vx, .ld_r_vx, .ld_vx_r => {
+                strong_schip_count += 1;
+                if (schip_reason.len == 0) schip_reason = "strong SCHIP opcode (exit/hires/large-font/RPL) present";
+            },
+            .scd, .scr, .scl => {
+                weak_schip_count += 1;
+                if (schip_reason.len == 0) schip_reason = "SCHIP scroll opcode present";
+            },
             .drw => |s| {
-                if (s.n == 0) saw_schip = true;
+                if (s.n == 0) {
+                    weak_schip_count += 1;
+                    if (schip_reason.len == 0) schip_reason = "DXY0 (16x16 SCHIP sprite) present";
+                }
             },
             else => {},
         }
         offset += decoded.byte_len;
     }
-    return if (saw_schip) .schip_11 else .modern;
+
+    // Classify as SCHIP only when we have high-confidence evidence.
+    // Sprite-data bytes happily decode into "strong" SCHIP opcodes
+    // (0x00FF = HIGH appears inside any sprite with a 0xFF row followed
+    // by a 0x00 row). Require ≥2 strong OR ≥3 total markers before we
+    // trust the signal.
+    const schip_signal = strong_schip_count + weak_schip_count;
+    const schip_confident = strong_schip_count >= 2 or schip_signal >= 3;
+    if (schip_confident) {
+        return .{
+            .profile = .schip_11,
+            .confidence = if (strong_schip_count >= 2) 0.85 else 0.7,
+            .reasoning = schip_reason,
+            .platform_id = "superchip1",
+        };
+    }
+    if (schip_signal >= 1) {
+        // Marker count below threshold — most likely a false positive
+        // from sprite data. Surface the signal in reasoning but default
+        // to the VIP platform.
+        return .{
+            .profile = .vip_legacy,
+            .confidence = 0.55,
+            .reasoning = "weak SCHIP signal below threshold (likely data) — defaulting to originalChip8",
+            .platform_id = "originalChip8",
+        };
+    }
+    return .{
+        .profile = .vip_legacy,
+        .confidence = 0.6,
+        .reasoning = "no extension markers — defaulting to originalChip8 (VIP)",
+        .platform_id = "originalChip8",
+    };
 }
 
 pub fn labelName(addr: u16, buf: []u8) []const u8 {

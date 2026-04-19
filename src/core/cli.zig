@@ -33,7 +33,30 @@ pub const Command = union(enum) {
     validate_manifest: struct {
         path: ?[]const u8,
     },
+    verify: VerifyCommand,
     help: struct {},
+};
+
+pub const VerifyCommand = union(enum) {
+    // `chip8 verify tests <test-id> <rom-path> [--reference=<hex>]`
+    tests: struct {
+        test_id: []const u8,
+        rom_path: []const u8,
+        reference_hash: ?[]const u8 = null,
+    },
+    // `chip8 verify axis <name> [<rom-path>] [--reference=<hex>] [--start=<hex>]`
+    // rom_path is optional for axes with a synthetic-only mode (memory, sound).
+    axis: struct {
+        axis_name: []const u8,
+        rom_path: ?[]const u8 = null,
+        reference_hash: ?[]const u8 = null,
+        start_address: ?u16 = null,
+    },
+    // `chip8 verify inference [--disagreements=<N>]` — grades inference
+    // against chip-8-database using installed ROMs as the audit sample.
+    inference: struct {
+        max_disagreements: u32 = 10,
+    },
 };
 
 pub const RunCommand = struct {
@@ -114,8 +137,60 @@ pub fn parseArgs(args: []const []const u8) ParseError!Command {
     if (std.mem.eql(u8, args[0], "validate")) {
         return .{ .validate_manifest = .{ .path = if (args.len > 1) args[1] else null } };
     }
+    if (std.mem.eql(u8, args[0], "verify")) {
+        if (args.len < 2) return error.MissingOperand;
+        return .{ .verify = try parseVerifyArgs(args[1..]) };
+    }
 
     return .{ .run = try parseRunArgs(args) };
+}
+
+fn parseVerifyArgs(args: []const []const u8) ParseError!VerifyCommand {
+    if (args.len < 1) return error.MissingOperand;
+    const sub = args[0];
+    // tests <test-id> <rom-path> [--reference=<hex>]
+    if (std.mem.eql(u8, sub, "tests")) {
+        if (args.len < 3) return error.MissingOperand;
+        var reference: ?[]const u8 = null;
+        for (args[3..]) |a| {
+            if (std.mem.startsWith(u8, a, "--reference=")) {
+                reference = a["--reference=".len..];
+            } else return error.UnexpectedArgument;
+        }
+        return .{ .tests = .{ .test_id = args[1], .rom_path = args[2], .reference_hash = reference } };
+    }
+    // axis <axis-name> [<rom-path>] [--reference=<hex>] [--start=<hex>]
+    if (std.mem.eql(u8, sub, "axis")) {
+        var rom_path: ?[]const u8 = null;
+        var reference: ?[]const u8 = null;
+        var start_address: ?u16 = null;
+        for (args[2..]) |a| {
+            if (std.mem.startsWith(u8, a, "--reference=")) {
+                reference = a["--reference=".len..];
+            } else if (std.mem.startsWith(u8, a, "--start=")) {
+                const hex = a["--start=".len..];
+                const stripped = if (std.mem.startsWith(u8, hex, "0x")) hex[2..] else hex;
+                start_address = std.fmt.parseInt(u16, stripped, 16) catch return error.InvalidCommand;
+            } else if (std.mem.startsWith(u8, a, "-")) {
+                return error.UnexpectedArgument;
+            } else {
+                if (rom_path != null) return error.UnexpectedArgument;
+                rom_path = a;
+            }
+        }
+        return .{ .axis = .{ .axis_name = args[1], .rom_path = rom_path, .reference_hash = reference, .start_address = start_address } };
+    }
+    if (std.mem.eql(u8, sub, "inference")) {
+        var max_disagreements: u32 = 10;
+        for (args[1..]) |a| {
+            if (std.mem.startsWith(u8, a, "--disagreements=")) {
+                const v = a["--disagreements=".len..];
+                max_disagreements = std.fmt.parseInt(u32, v, 10) catch return error.InvalidCommand;
+            } else return error.UnexpectedArgument;
+        }
+        return .{ .inference = .{ .max_disagreements = max_disagreements } };
+    }
+    return error.InvalidCommand;
 }
 
 fn parseGetArgs(args: []const []const u8) ParseError!@FieldType(Command, "get") {
@@ -179,6 +254,12 @@ pub fn usage() []const u8 {
         \\  chip8 registries                # list configured known registries
         \\  chip8 init [path]               # scaffold a chip8.json in a directory
         \\  chip8 validate [path]           # validate a chip8.json against the spec
+        \\  chip8 verify tests <id> <rom> [--reference=<hex>]
+        \\                                  # run a Timendus test ROM headlessly
+        \\  chip8 verify axis <name> [<rom>] [--reference=<hex>] [--start=<hex>]
+        \\                                  # run a single correctness axis (opcodes, memory, sound)
+        \\  chip8 verify inference [--disagreements=<N>]
+        \\                                  # grade the inference engine against chip-8-database
         \\
         \\Environment:
         \\  GITHUB_TOKEN  Optional. Lifts GitHub API rate limits (60/hr → 5000/hr).

@@ -418,10 +418,13 @@ fn installRepoFileAt(
     expected_sha1: ?[]const u8,
     registry_name: ?[]const u8,
 ) RegistryError!models.InstalledRom {
+    // Prefer the caller-supplied download_url (the GitHub API already
+    // resolved the default branch). When it's missing, probe `main` then
+    // `master` so repos on either branch work without a state resync.
     const raw_url = if (download_url) |d|
         try ctx.allocator.dupe(u8, d)
     else
-        try url_mod.resolveGithubRaw(ctx.allocator, user, repo, "main", path);
+        try fetchRawOnEitherBranch(ctx, user, repo, path);
     defer ctx.allocator.free(raw_url);
 
     const data = network.fetchBytes(ctx.io, ctx.allocator, raw_url) catch |err| return mapNetworkError(err);
@@ -702,6 +705,29 @@ pub fn update(ctx: *InstallContext, id: []const u8) RegistryError!models.Install
 }
 
 // --- helpers --------------------------------------------------------------
+
+// Given a user/repo/path without a pre-resolved download_url, try common
+// default-branch names (`main`, then `master`) and return the first URL
+// that returns 200. Falls back to the `main` URL if neither probes hit
+// so downstream fetch can surface a sensible error.
+fn fetchRawOnEitherBranch(
+    ctx: *InstallContext,
+    user: []const u8,
+    repo: []const u8,
+    path: []const u8,
+) ![]const u8 {
+    const branches = [_][]const u8{ "main", "master" };
+    for (branches) |branch| {
+        const candidate = try url_mod.resolveGithubRaw(ctx.allocator, user, repo, branch, path);
+        if (network.headOk(ctx.io, ctx.allocator, candidate)) {
+            return candidate;
+        }
+        ctx.allocator.free(candidate);
+    }
+    // Nothing resolved — return the `main` URL so the subsequent fetch
+    // surfaces a proper error.NotFound rather than our silently guessing.
+    return try url_mod.resolveGithubRaw(ctx.allocator, user, repo, "main", path);
+}
 
 fn mapNetworkError(err: anyerror) RegistryError {
     const name = @errorName(err);

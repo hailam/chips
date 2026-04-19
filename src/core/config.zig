@@ -5,6 +5,11 @@ const cache = @import("cache.zig");
 pub const Config = struct {
     known_registries: []models.KnownRegistry,
     github_token: ?[]const u8 = null,
+    // When true (default), a chip-8-database hash match auto-applies the full
+    // configuration bundle (platform, quirks, tickrate, etc.) to the loaded
+    // ROM. When false, the match is reported as a suggestion only and the
+    // user's selected profile wins.
+    auto_apply_db_config: bool = true,
 
     pub fn deinit(self: Config, allocator: std.mem.Allocator) void {
         for (self.known_registries) |reg| reg.deinit(allocator);
@@ -44,6 +49,7 @@ pub fn loadConfig(io: std.Io, allocator: std.mem.Allocator, app_data_root: []con
     const ParsedShape = struct {
         known_registries: []models.KnownRegistry,
         github_token: ?[]const u8 = null,
+        auto_apply_db_config: bool = true,
     };
 
     // If the file is present but doesn't match the current schema
@@ -52,11 +58,13 @@ pub fn loadConfig(io: std.Io, allocator: std.mem.Allocator, app_data_root: []con
     const parsed_opt = cache.readJson(io, allocator, config_path, ParsedShape) catch null;
     if (parsed_opt) |parsed| {
         defer parsed.deinit();
-        return try cloneConfig(allocator, parsed.value.known_registries, parsed.value.github_token);
+        var cfg = try cloneConfig(allocator, parsed.value.known_registries, parsed.value.github_token);
+        cfg.auto_apply_db_config = parsed.value.auto_apply_db_config;
+        return cfg;
     }
 
     const defaults = try buildDefaults(allocator);
-    const cfg = Config{ .known_registries = defaults, .github_token = null };
+    const cfg = Config{ .known_registries = defaults, .github_token = null, .auto_apply_db_config = true };
     try saveConfig(io, allocator, app_data_root, cfg);
     return cfg;
 }

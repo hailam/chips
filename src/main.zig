@@ -12,6 +12,13 @@ const state_mod = @import("core/state.zig");
 const chip8_db_cache = @import("core/chip8_db_cache.zig");
 const spec_mod = @import("core/spec.zig");
 const github_mod = @import("core/github.zig");
+const runtime_check = @import("core/verification/runtime_check.zig");
+const verify_report = @import("core/verification/report.zig");
+const verify_test_suite = @import("core/verification/test_suite.zig");
+const axis_opcodes = @import("core/verification/axis/opcodes.zig");
+const axis_memory = @import("core/verification/axis/memory.zig");
+const axis_sound = @import("core/verification/axis/sound.zig");
+const inference_audit = @import("core/verification/inference_audit.zig");
 const control = @import("core/control_spec.zig");
 const cpu_mod = @import("core/cpu.zig");
 const debugger_mod = @import("core/debugger.zig");
@@ -85,6 +92,7 @@ fn runCommand(init: std.process.Init, command: cli.Command) !void {
         .registries => try runRegistriesCommand(init),
         .init_manifest => |cmd| try runInitCommand(init, cmd.path),
         .validate_manifest => |cmd| try runValidateCommand(init, cmd.path),
+        .verify => |cmd| try runVerifyCommand(init, cmd),
         .help => try runHelpCommand(init),
     }
 }
@@ -674,8 +682,34 @@ fn loadRomIntoRuntime(
     errdefer init.gpa.free(display_name);
 
     const pref = app_state.findRomPreference(sha1_hex);
+
+    // Run the runtime-check resolver: consults chip-8-database first, falls
+    // back to inference, then to the user profile. Emits a notification so
+    // the user can see which layer won.
+    const config = try config_mod.loadConfig(init.io, init.gpa, app_data_root);
+    defer config.deinit(init.gpa);
+
+    var db_cache = try chip8_db_cache.load(init.io, init.gpa, app_data_root);
+    defer db_cache.deinit();
+
+    const sidecar_override = try loadSidecarOverrideAlloc(init.io, init.gpa, app_data_root, rom_path);
+    defer if (sidecar_override) |o| o.deinit(init.gpa);
+
+    const resolution = try runtime_check.resolveConfigForRom(
+        init.gpa,
+        rom_data,
+        requested_profile,
+        sidecar_override,
+        &db_cache,
+        config.auto_apply_db_config,
+    );
+    defer resolution.deinit(init.gpa);
+
+    printRuntimeNotification(display_name, resolution);
+
     const inferred_profile = assembly.inferProfile(rom_data);
-    const profile = requested_profile orelse if (pref) |value|
+    const resolved_profile: ?emulation.QuirkProfile = emulation.platformIdToProfile(resolution.config.platform);
+    const profile = requested_profile orelse resolved_profile orelse if (pref) |value|
         preferredProfile(value.quirk_profile, inferred_profile)
     else
         inferred_profile;
@@ -716,6 +750,65 @@ fn loadRomIntoRuntime(
         .sha1_hex = sha1_hex,
         .analysis = analysis,
     };
+}
+
+// If the ROM path points to a sidecar-carrying installed file, return its
+// config_override. Otherwise null. Best-effort: failures are swallowed so
+// a missing/corrupt sidecar doesn't block ROM load.
+fn loadSidecarOverrideAlloc(
+    io: std.Io,
+    allocator: std.mem.Allocator,
+    app_data_root: []const u8,
+    rom_path: []const u8,
+) !?models.RomConfigOverride {
+    _ = app_data_root;
+    if (!std.mem.endsWith(u8, rom_path, ".ch8")) return null;
+    const sidecar = try std.fmt.allocPrint(allocator, "{s}.json", .{rom_path[0 .. rom_path.len - 4]});
+    defer allocator.free(sidecar);
+
+    const bytes = std.Io.Dir.cwd().readFileAlloc(io, sidecar, allocator, .limited(1 * 1024 * 1024)) catch return null;
+    defer allocator.free(bytes);
+
+    const parsed = std.json.parseFromSlice(models.InstalledRom, allocator, bytes, .{
+        .ignore_unknown_fields = true,
+        .allocate = .alloc_always,
+    }) catch return null;
+    defer parsed.deinit();
+
+    if (parsed.value.config_override) |o| {
+        return try o.clone(allocator);
+    }
+    return null;
+}
+
+fn printRuntimeNotification(display_name: []const u8, resolution: runtime_check.ConfigResolution) void {
+    switch (resolution.layer) {
+        .database_match => {
+            std.debug.print("[db] {s}  platform={s}  tickrate={d}", .{ display_name, resolution.config.platform, resolution.config.tickrate });
+            if (resolution.config.start_address != 0x200) std.debug.print("  start=0x{X:0>3}", .{resolution.config.start_address});
+            if (resolution.config.font_style) |f| std.debug.print("  font={s}", .{f});
+            if (resolution.override_applied) std.debug.print("  +override", .{});
+            std.debug.print("\n", .{});
+        },
+        .inference => {
+            std.debug.print("[inferred] {s}  platform={s}  confidence={d:.2}  reason={s}", .{
+                display_name,
+                resolution.config.platform,
+                resolution.confidence,
+                resolution.reasoning orelse "",
+            });
+            if (resolution.override_applied) std.debug.print("  +override", .{});
+            std.debug.print("\n", .{});
+        },
+        .fallback => {
+            std.debug.print("[fallback] {s}  platform={s}", .{ display_name, resolution.config.platform });
+            if (resolution.override_applied) std.debug.print("  +override", .{});
+            std.debug.print("\n", .{});
+        },
+    }
+    if (resolution.embedded_title_mismatch) |m| {
+        std.debug.print("  ! embedded title mismatch: expected \"{s}\", found \"{s}\"\n", .{ m.expected, m.found });
+    }
 }
 
 fn preferredProfile(saved: emulation.QuirkProfile, inferred: emulation.QuirkProfile) emulation.QuirkProfile {
@@ -1182,6 +1275,177 @@ fn runValidateCommand(init: std.process.Init, path: ?[]const u8) !void {
             std.process.exit(1);
         },
     }
+}
+
+fn runVerifyCommand(init: std.process.Init, cmd: cli.VerifyCommand) !void {
+    switch (cmd) {
+        .tests => |t| try runVerifyTest(init, t.test_id, t.rom_path, t.reference_hash),
+        .axis => |a| try runVerifyAxis(init, a),
+        .inference => |i| try runVerifyInference(init, i.max_disagreements),
+    }
+}
+
+fn runVerifyTest(init: std.process.Init, test_id_str: []const u8, rom_path: []const u8, reference: ?[]const u8) !void {
+    const test_id = verify_test_suite.TestId.fromString(test_id_str) orelse {
+        std.debug.print("Unknown test id: {s}\n", .{test_id_str});
+        std.process.exit(2);
+    };
+
+    const rom_bytes = try std.Io.Dir.cwd().readFileAlloc(init.io, rom_path, init.gpa, .limited(cpu_mod.CHIP8_MEMORY_SIZE));
+    defer init.gpa.free(rom_bytes);
+
+    // For now every test ID routes through the opcodes-style runner. When we
+    // grow more axes this should dispatch to per-test analyzers instead.
+    const rep = try axis_opcodes.runCoraxPlus(init.gpa, rom_bytes, .{
+        .rom_id = test_id.displayName(),
+        .reference_hash = reference,
+    });
+    defer rep.deinit(init.gpa);
+
+    try emitAxisReport(init, rep);
+    if (rep.verdict == .fail or rep.verdict == .harness_error) std.process.exit(1);
+}
+
+fn runVerifyAxis(init: std.process.Init, a: anytype) !void {
+    if (std.mem.eql(u8, a.axis_name, "opcodes")) {
+        const rom_path = a.rom_path orelse {
+            std.debug.print("axis opcodes requires a ROM path\n", .{});
+            std.process.exit(2);
+        };
+        const rom_bytes = try std.Io.Dir.cwd().readFileAlloc(init.io, rom_path, init.gpa, .limited(cpu_mod.CHIP8_MEMORY_SIZE));
+        defer init.gpa.free(rom_bytes);
+        const rep = try axis_opcodes.runCoraxPlus(init.gpa, rom_bytes, .{
+            .rom_id = rom_path,
+            .reference_hash = a.reference_hash,
+        });
+        defer rep.deinit(init.gpa);
+        try emitAxisReport(init, rep);
+        if (rep.verdict == .fail or rep.verdict == .harness_error) std.process.exit(1);
+        return;
+    }
+
+    if (std.mem.eql(u8, a.axis_name, "memory")) {
+        // Always runs synthetic invariants; if a ROM was supplied, also runs
+        // the startAddress-honor check.
+        const rep_synth = try axis_memory.runSyntheticInvariants(init.gpa);
+        defer rep_synth.deinit(init.gpa);
+        try emitAxisReport(init, rep_synth);
+
+        if (a.rom_path) |rom_path| {
+            const rom_bytes = try std.Io.Dir.cwd().readFileAlloc(init.io, rom_path, init.gpa, .limited(cpu_mod.CHIP8_MEMORY_SIZE));
+            defer init.gpa.free(rom_bytes);
+            const rep_rom = try axis_memory.runForRom(init.gpa, rom_bytes, .{
+                .rom_id = rom_path,
+                .start_address = a.start_address orelse 0x200,
+            });
+            defer rep_rom.deinit(init.gpa);
+            try emitAxisReport(init, rep_rom);
+            if (rep_synth.verdict == .fail or rep_rom.verdict == .fail) std.process.exit(1);
+        } else if (rep_synth.verdict == .fail) {
+            std.process.exit(1);
+        }
+        return;
+    }
+
+    if (std.mem.eql(u8, a.axis_name, "sound")) {
+        const rep = try axis_sound.runSyntheticInvariants(init.gpa);
+        defer rep.deinit(init.gpa);
+        try emitAxisReport(init, rep);
+        if (rep.verdict == .fail) std.process.exit(1);
+        return;
+    }
+
+    std.debug.print("Unknown axis: {s}  (available: opcodes, memory, sound)\n", .{a.axis_name});
+    std.process.exit(2);
+}
+
+const AuditCtx = struct {
+    io: std.Io,
+    allocator: std.mem.Allocator,
+};
+
+fn readInstalledBytes(raw_ctx: *anyopaque, rom: models.InstalledRom) anyerror!?[]const u8 {
+    const ctx: *AuditCtx = @ptrCast(@alignCast(raw_ctx));
+    const bytes = std.Io.Dir.cwd().readFileAlloc(ctx.io, rom.local.path, ctx.allocator, .limited(cpu_mod.CHIP8_MEMORY_SIZE)) catch return null;
+    return bytes;
+}
+
+fn runVerifyInference(init: std.process.Init, max_disagreements: u32) !void {
+    const app_data_root = try persistence.defaultAppDataRootAlloc(init.gpa, init.minimal.environ);
+    defer init.gpa.free(app_data_root);
+
+    const installed = try registry.listInstalled(init.io, init.gpa, app_data_root);
+    defer {
+        for (installed) |r| r.deinit(init.gpa);
+        init.gpa.free(installed);
+    }
+
+    var db_cache = try chip8_db_cache.load(init.io, init.gpa, app_data_root);
+    defer db_cache.deinit();
+
+    // Arena for the throw-away ROM byte reads during grading.
+    var arena_state = std.heap.ArenaAllocator.init(init.gpa);
+    defer arena_state.deinit();
+    var ctx = AuditCtx{ .io = init.io, .allocator = arena_state.allocator() };
+
+    const report = try inference_audit.gradeInstalled(
+        init.gpa,
+        installed,
+        &db_cache,
+        readInstalledBytes,
+        @ptrCast(&ctx),
+    );
+    defer report.deinit(init.gpa);
+
+    var buf: [8192]u8 = undefined;
+    var stdout_writer = std.Io.File.stdout().writer(init.io, &buf);
+    const w = &stdout_writer.interface;
+    if (report.total_roms_graded == 0) {
+        try w.print("No installed ROMs had chip-8-database matches to grade against. Install some ROMs first.\n", .{});
+        try w.flush();
+        return;
+    }
+
+    try w.print("Inference audit across {d} installed ROMs with db-cache hits\n", .{report.total_roms_graded});
+    try w.print("  platform accuracy: {d:.2}%  (exact={d}, acceptable={d}, wrong={d})\n", .{
+        report.platformAccuracy() * 100.0,
+        report.exact_match,
+        report.acceptable,
+        report.wrong,
+    });
+    try w.print("  quirk accuracy (mapped subset): {d:.2}%\n", .{report.overallQuirkAccuracy() * 100.0});
+    for (report.per_quirk) |q| {
+        try w.print("    {s:<10} {d:.2}%  (tp={d} tn={d} fp={d} fn={d})\n", .{
+            q.quirk,
+            q.matrix.accuracy() * 100.0,
+            q.matrix.true_positive,
+            q.matrix.true_negative,
+            q.matrix.false_positive,
+            q.matrix.false_negative,
+        });
+    }
+    if (report.platform_disagreements.len > 0) {
+        const shown = @min(report.platform_disagreements.len, max_disagreements);
+        try w.print("  disagreements (showing {d}/{d}):\n", .{ shown, report.platform_disagreements.len });
+        for (report.platform_disagreements[0..shown]) |d| {
+            try w.print("    sha1={s}  expected={s}  inferred={s}  reason={s}\n", .{
+                d.sha1,
+                d.expected_platform,
+                d.inferred_platform,
+                d.reasoning,
+            });
+        }
+    }
+    try w.flush();
+}
+
+fn emitAxisReport(init: std.process.Init, rep: verify_report.AxisReport) !void {
+    var buf: [4096]u8 = undefined;
+    var stdout_writer = std.Io.File.stdout().writer(init.io, &buf);
+    const w = &stdout_writer.interface;
+    try w.print("[{s}] {s} :: {s}  {s}\n", .{ rep.verdict.asString(), rep.axis_name, rep.rom_id, rep.details });
+    for (rep.diagnostics) |d| try w.print("  - {s}: {s}\n", .{ d.kind, d.message });
+    try w.flush();
 }
 
 fn printRegistryError(err: anyerror, context: []const u8) void {

@@ -144,6 +144,13 @@ const DbRom = struct {
     platforms: []const []const u8 = &.{},
     embeddedTitle: ?[]const u8 = null,
     tickrate: ?u32 = null,
+    startAddress: ?u16 = null,
+    screenRotation: ?u16 = null,
+    fontStyle: ?[]const u8 = null,
+    touchInputMode: ?[]const u8 = null,
+    keys: ?models.DbKeys = null,
+    colors: ?models.DbColors = null,
+    quirkyPlatforms: std.json.ArrayHashMap(models.QuirkSet) = .{},
 };
 
 pub fn fetchAndCache(
@@ -261,6 +268,25 @@ fn buildEntry(allocator: std.mem.Allocator, prog: DbProgram, rom: DbRom) !models
         p_pop = i + 1;
     }
 
+    // Flatten quirkyPlatforms (JSON object) into a list so it round-trips
+    // through our own json-serialized cache without hash-map dependencies.
+    var qp = try allocator.alloc(models.QuirkyPlatformOverride, rom.quirkyPlatforms.map.count());
+    var qp_pop: usize = 0;
+    errdefer {
+        for (qp[0..qp_pop]) |q| q.deinit(allocator);
+        allocator.free(qp);
+    }
+    var qp_it = rom.quirkyPlatforms.map.iterator();
+    while (qp_it.next()) |kv| {
+        qp[qp_pop] = .{
+            .platform = try allocator.dupe(u8, kv.key_ptr.*),
+            .quirks = kv.value_ptr.*,
+        };
+        qp_pop += 1;
+    }
+
+    const colors_clone: ?models.DbColors = if (rom.colors) |c| try c.clone(allocator) else null;
+
     return .{
         .title = try allocator.dupe(u8, prog.title),
         .description = try allocator.dupe(u8, prog.description),
@@ -270,5 +296,12 @@ fn buildEntry(allocator: std.mem.Allocator, prog: DbProgram, rom: DbRom) !models
         .file = if (rom.file) |v| try allocator.dupe(u8, v) else null,
         .embedded_title = if (rom.embeddedTitle) |v| try allocator.dupe(u8, v) else null,
         .tickrate = rom.tickrate,
+        .start_address = rom.startAddress,
+        .screen_rotation = rom.screenRotation,
+        .font_style = if (rom.fontStyle) |v| try allocator.dupe(u8, v) else null,
+        .touch_input_mode = if (rom.touchInputMode) |v| try allocator.dupe(u8, v) else null,
+        .keys = rom.keys,
+        .colors = colors_clone,
+        .quirky_platforms = qp,
     };
 }

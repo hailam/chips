@@ -11,6 +11,24 @@ const persistence = @import("persistence.zig");
 const timing = @import("timing.zig");
 const trace = @import("trace.zig");
 
+// Pull in tests from modules that aren't directly referenced by cpu_test's
+// own cases. `zig build test` runs every test declared in the root module's
+// reachable files, so a single @import is enough to include them.
+comptime {
+    _ = @import("url.zig");
+    _ = @import("spec.zig");
+    _ = @import("state.zig");
+    _ = @import("verification/oracle/spec.zig");
+    _ = @import("verification/oracle/ground_truth.zig");
+    _ = @import("verification/runtime_check.zig");
+    _ = @import("verification/report.zig");
+    _ = @import("verification/test_suite.zig");
+    _ = @import("verification/axis/opcodes.zig");
+    _ = @import("verification/axis/memory.zig");
+    _ = @import("verification/axis/sound.zig");
+    _ = @import("verification/inference_audit.zig");
+}
+
 test "CPU initialization" {
     const c = cpu.CPU.init();
 
@@ -829,7 +847,10 @@ test "Profile inference ignores bare 0000 data but detects XO opcodes" {
         0x00, 0x00,
         0x61, 0x08,
     };
-    try std.testing.expectEqual(emulation.QuirkProfile.modern, assembly.inferProfile(&mostly_zero));
+    // Updated for heuristic v2: no markers defaults to vip_legacy
+    // (originalChip8), matching chip-8-database's classification of most
+    // untagged ROMs.
+    try std.testing.expectEqual(emulation.QuirkProfile.vip_legacy, assembly.inferProfile(&mostly_zero));
 
     const xo_rom = [_]u8{
         0xF2, 0x01,
