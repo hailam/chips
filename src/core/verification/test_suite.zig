@@ -21,7 +21,7 @@ pub const TestId = enum {
     flags, // 4-flags
     quirks, // 5-quirks
     beep, // 7-beep
-    scrolltest, // 8-scrolltest
+    scrolling, // 8-scrolling (the file is named scrolling.ch8 upstream)
 
     pub fn fromString(s: []const u8) ?TestId {
         if (std.mem.eql(u8, s, "1-chip8-logo")) return .chip8_logo;
@@ -30,7 +30,7 @@ pub const TestId = enum {
         if (std.mem.eql(u8, s, "4-flags")) return .flags;
         if (std.mem.eql(u8, s, "5-quirks")) return .quirks;
         if (std.mem.eql(u8, s, "7-beep")) return .beep;
-        if (std.mem.eql(u8, s, "8-scrolltest")) return .scrolltest;
+        if (std.mem.eql(u8, s, "8-scrolling") or std.mem.eql(u8, s, "8-scrolltest")) return .scrolling;
         return null;
     }
 
@@ -42,7 +42,7 @@ pub const TestId = enum {
             .flags => "4-flags",
             .quirks => "5-quirks",
             .beep => "7-beep",
-            .scrolltest => "8-scrolltest",
+            .scrolling => "8-scrolling",
         };
     }
 
@@ -53,7 +53,7 @@ pub const TestId = enum {
             .chip8_logo, .ibm_logo => 500,
             .corax_plus, .flags => 100_000,
             .quirks => 200_000,
-            .beep, .scrolltest => 100_000,
+            .beep, .scrolling => 100_000,
         };
     }
 };

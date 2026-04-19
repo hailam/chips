@@ -19,6 +19,7 @@ const axis_opcodes = @import("core/verification/axis/opcodes.zig");
 const axis_memory = @import("core/verification/axis/memory.zig");
 const axis_sound = @import("core/verification/axis/sound.zig");
 const inference_audit = @import("core/verification/inference_audit.zig");
+const corpus_mod = @import("core/verification/corpus.zig");
 const control = @import("core/control_spec.zig");
 const cpu_mod = @import("core/cpu.zig");
 const debugger_mod = @import("core/debugger.zig");
@@ -1282,16 +1283,57 @@ fn runVerifyCommand(init: std.process.Init, cmd: cli.VerifyCommand) !void {
         .tests => |t| try runVerifyTest(init, t.test_id, t.rom_path, t.reference_hash),
         .axis => |a| try runVerifyAxis(init, a),
         .inference => |i| try runVerifyInference(init, i.max_disagreements),
+        .all => try runVerifyAll(init),
     }
 }
 
-fn runVerifyTest(init: std.process.Init, test_id_str: []const u8, rom_path: []const u8, reference: ?[]const u8) !void {
+fn runVerifyAll(init: std.process.Init) !void {
+    const app_data_root = try persistence.defaultAppDataRootAlloc(init.gpa, init.minimal.environ);
+    defer init.gpa.free(app_data_root);
+
+    const installed = try registry.listInstalled(init.io, init.gpa, app_data_root);
+    defer {
+        for (installed) |r| r.deinit(init.gpa);
+        init.gpa.free(installed);
+    }
+
+    var db_cache = try chip8_db_cache.load(init.io, init.gpa, app_data_root);
+    defer db_cache.deinit();
+
+    const report = try corpus_mod.runAll(.{
+        .io = init.io,
+        .allocator = init.gpa,
+        .installed = installed,
+        .db_cache = &db_cache,
+    });
+    defer report.deinit(init.gpa);
+
+    var buf: [16 * 1024]u8 = undefined;
+    var stdout_writer = std.Io.File.stdout().writer(init.io, &buf);
+    const w = &stdout_writer.interface;
+    try verify_report.formatHuman(report, w);
+    try w.flush();
+
+    const s = report.summary();
+    if (s.fail > 0 or s.err > 0) std.process.exit(1);
+}
+
+fn runVerifyTest(init: std.process.Init, test_id_str: []const u8, rom_path_opt: ?[]const u8, reference: ?[]const u8) !void {
     const test_id = verify_test_suite.TestId.fromString(test_id_str) orelse {
-        std.debug.print("Unknown test id: {s}\n", .{test_id_str});
+        std.debug.print("Unknown test id: {s}  (known: 1-chip8-logo, 2-ibm-logo, 3-corax+, 4-flags, 5-quirks, 7-beep, 8-scrolling)\n", .{test_id_str});
         std.process.exit(2);
     };
 
-    const rom_bytes = try std.Io.Dir.cwd().readFileAlloc(init.io, rom_path, init.gpa, .limited(cpu_mod.CHIP8_MEMORY_SIZE));
+    const resolved_path = if (rom_path_opt) |p|
+        try init.gpa.dupe(u8, p)
+    else
+        (try resolveInstalledTestRom(init, test_id)) orelse {
+            std.debug.print("No ROM path supplied and no installed copy found.\n  Install it first: chip8 get timendus:{s}\n", .{test_id.displayName()});
+            std.process.exit(2);
+        };
+    defer init.gpa.free(resolved_path);
+
+    const rom_bytes = try std.Io.Dir.cwd().readFileAlloc(init.io, resolved_path, init.gpa, .limited(cpu_mod.CHIP8_MEMORY_SIZE));
     defer init.gpa.free(rom_bytes);
 
     // For now every test ID routes through the opcodes-style runner. When we
@@ -1304,6 +1346,35 @@ fn runVerifyTest(init: std.process.Init, test_id_str: []const u8, rom_path: []co
 
     try emitAxisReport(init, rep);
     if (rep.verdict == .fail or rep.verdict == .harness_error) std.process.exit(1);
+}
+
+// Look for a Timendus test ROM that the user has installed. Matches either
+// `installed_roms/timendus/<id>.ch8` (the registry-shorthand install path)
+// or any installed ROM whose metadata.id equals the test display name.
+fn resolveInstalledTestRom(init: std.process.Init, test_id: verify_test_suite.TestId) !?[]u8 {
+    const app_data_root = try persistence.defaultAppDataRootAlloc(init.gpa, init.minimal.environ);
+    defer init.gpa.free(app_data_root);
+
+    const direct = try std.fmt.allocPrint(init.gpa, "{s}/installed_roms/timendus/{s}.ch8", .{ app_data_root, test_id.displayName() });
+    if (std.Io.Dir.cwd().statFile(init.io, direct, .{})) |_| {
+        return direct;
+    } else |_| {
+        init.gpa.free(direct);
+    }
+
+    // Fall back to scanning sidecars — covers users who installed the test
+    // via `chip8 get <url>` rather than `chip8 get timendus:<id>`.
+    const installed = try registry.listInstalled(init.io, init.gpa, app_data_root);
+    defer {
+        for (installed) |r| r.deinit(init.gpa);
+        init.gpa.free(installed);
+    }
+    for (installed) |rom| {
+        if (std.mem.eql(u8, rom.metadata.id, test_id.displayName())) {
+            return try init.gpa.dupe(u8, rom.local.path);
+        }
+    }
+    return null;
 }
 
 fn runVerifyAxis(init: std.process.Init, a: anytype) !void {

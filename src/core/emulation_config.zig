@@ -40,24 +40,20 @@ pub const EmulationConfig = struct {
     }
 };
 
+// Values here track chip-8-database/database/platforms.json as the oracle.
+// When a flag's boolean doesn't match the upstream platform's `quirks`
+// entry, that is a bug — update this table, not the database.
+//
+// Mapping (our flag ↔ db `quirks.*`):
+//   shift_uses_vy        true ↔ db.shift=false   (standard vY source)
+//   logic_ops_clear_vf   same ↔ db.logic
+//   draw_wrap            same ↔ db.wrap
+//   jump_uses_vx         same ↔ db.jump
+//   load_store_increment_i approximates db.memoryIncrementByX / memoryLeaveIUnchanged
 pub fn profileQuirks(profile: QuirkProfile) QuirkFlags {
     return switch (profile) {
+        // modernChip8: shift=false, wrap=false, jump=false, vblank=false, logic=false
         .modern => .{
-            .shift_uses_vy = false,
-            .load_store_increment_i = false,
-            .logic_ops_clear_vf = true,
-            .draw_wrap = true,
-            .jump_uses_vx = false,
-            .supports_hires = false,
-            .supports_xo = false,
-            .octo_behavior = false,
-            .resolution_switch_clears = false,
-            .dxy0_lores_16x16 = false,
-            .fx30_large_font_hex = false,
-            .draw_vf_rowcount_in_hires = false,
-            .max_rpl = 0,
-        },
-        .vip_legacy => .{
             .shift_uses_vy = true,
             .load_store_increment_i = true,
             .logic_ops_clear_vf = false,
@@ -72,11 +68,28 @@ pub fn profileQuirks(profile: QuirkProfile) QuirkFlags {
             .draw_vf_rowcount_in_hires = false,
             .max_rpl = 0,
         },
+        // originalChip8 (Cosmac VIP): shift=false, wrap=false, jump=false, vblank=true, logic=true
+        .vip_legacy => .{
+            .shift_uses_vy = true,
+            .load_store_increment_i = true,
+            .logic_ops_clear_vf = true,
+            .draw_wrap = false,
+            .jump_uses_vx = false,
+            .supports_hires = false,
+            .supports_xo = false,
+            .octo_behavior = false,
+            .resolution_switch_clears = false,
+            .dxy0_lores_16x16 = false,
+            .fx30_large_font_hex = false,
+            .draw_vf_rowcount_in_hires = false,
+            .max_rpl = 0,
+        },
+        // superchip1 (HP48): shift=true, memIncX=true, wrap=false, jump=true, vblank=false, logic=false
         .schip_11 => .{
             .shift_uses_vy = false,
             .load_store_increment_i = false,
-            .logic_ops_clear_vf = true,
-            .draw_wrap = true,
+            .logic_ops_clear_vf = false,
+            .draw_wrap = false,
             .jump_uses_vx = true,
             .supports_hires = true,
             .supports_xo = false,
@@ -87,10 +100,11 @@ pub fn profileQuirks(profile: QuirkProfile) QuirkFlags {
             .draw_vf_rowcount_in_hires = true,
             .max_rpl = 8,
         },
+        // xochip: shift=false, wrap=true, jump=false, vblank=false, logic=false
         .xo_chip => .{
-            .shift_uses_vy = false,
-            .load_store_increment_i = false,
-            .logic_ops_clear_vf = true,
+            .shift_uses_vy = true,
+            .load_store_increment_i = true,
+            .logic_ops_clear_vf = false,
             .draw_wrap = true,
             .jump_uses_vx = false,
             .supports_hires = true,
@@ -102,10 +116,11 @@ pub fn profileQuirks(profile: QuirkProfile) QuirkFlags {
             .draw_vf_rowcount_in_hires = true,
             .max_rpl = 16,
         },
+        // Octo's XO-CHIP flavor — base xochip + Octo's quirks.
         .octo_xo => .{
-            .shift_uses_vy = false,
-            .load_store_increment_i = false,
-            .logic_ops_clear_vf = true,
+            .shift_uses_vy = true,
+            .load_store_increment_i = true,
+            .logic_ops_clear_vf = false,
             .draw_wrap = true,
             .jump_uses_vx = false,
             .supports_hires = true,

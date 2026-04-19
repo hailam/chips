@@ -27,6 +27,7 @@ comptime {
     _ = @import("verification/axis/memory.zig");
     _ = @import("verification/axis/sound.zig");
     _ = @import("verification/inference_audit.zig");
+    _ = @import("verification/corpus.zig");
 }
 
 test "CPU initialization" {
@@ -212,6 +213,11 @@ test "Store and load registers" {
     c.registers[0] = 0;
     c.registers[1] = 0;
     c.registers[2] = 0;
+
+    // Reset I — modern now increments it by X+1 after FX55 (matching the
+    // chip-8-database "memoryIncrementByX=false, memoryLeaveIUnchanged=false"
+    // defaults).
+    c.index_register = 0x300;
 
     // Load V0..V2 (FX65 where X=2)
     c.program_counter = 0;
@@ -498,19 +504,34 @@ test "Timing accumulator caps large frame gaps" {
 }
 
 test "Emulation profiles expose expected quirk flags" {
+    // Values cross-checked against chip-8-database/database/platforms.json
+    // — these flags map 1:1 to the database's quirk definitions, so the
+    // assertions also serve as a cheap regression check against it.
     const modern = emulation.profileQuirks(.modern);
-    try std.testing.expect(!modern.shift_uses_vy);
-    try std.testing.expect(!modern.load_store_increment_i);
-    try std.testing.expect(modern.logic_ops_clear_vf);
-    try std.testing.expect(modern.draw_wrap);
+    try std.testing.expect(modern.shift_uses_vy);
+    try std.testing.expect(modern.load_store_increment_i);
+    try std.testing.expect(!modern.logic_ops_clear_vf);
+    try std.testing.expect(!modern.draw_wrap);
     try std.testing.expect(!modern.jump_uses_vx);
 
     const vip = emulation.profileQuirks(.vip_legacy);
     try std.testing.expect(vip.shift_uses_vy);
     try std.testing.expect(vip.load_store_increment_i);
-    try std.testing.expect(!vip.logic_ops_clear_vf);
+    try std.testing.expect(vip.logic_ops_clear_vf);
     try std.testing.expect(!vip.draw_wrap);
     try std.testing.expect(!vip.jump_uses_vx);
+
+    const schip = emulation.profileQuirks(.schip_11);
+    try std.testing.expect(!schip.shift_uses_vy);
+    try std.testing.expect(!schip.logic_ops_clear_vf);
+    try std.testing.expect(!schip.draw_wrap);
+    try std.testing.expect(schip.jump_uses_vx);
+
+    const xo = emulation.profileQuirks(.xo_chip);
+    try std.testing.expect(xo.shift_uses_vy);
+    try std.testing.expect(!xo.logic_ops_clear_vf);
+    try std.testing.expect(xo.draw_wrap);
+    try std.testing.expect(!xo.jump_uses_vx);
 }
 
 test "Legacy shift quirk uses VY as the source register" {
@@ -551,7 +572,10 @@ test "Legacy load store quirk increments I after FX55 and FX65" {
     try std.testing.expectEqual(@as(u16, 0x302), c.index_register);
 }
 
-test "Legacy logic ops preserve VF instead of clearing it" {
+test "VIP logic ops clear VF per spec" {
+    // Per chip-8-database's `logic` quirk description: the original
+    // Cosmac VIP interpreter resets vF after 8XY1/2/3. Later interpreters
+    // do not. We encode that as vip_legacy ↔ logic_ops_clear_vf=true.
     var c = cpu.CPU.init();
     c.registers[0] = 0xF0;
     c.registers[1] = 0x0F;
@@ -564,22 +588,41 @@ test "Legacy logic ops preserve VF instead of clearing it" {
     try c.executeInstruction(&memory, emulation.profileQuirks(.vip_legacy));
 
     try std.testing.expectEqual(@as(u8, 0xFF), c.registers[0]);
+    try std.testing.expectEqual(@as(u8, 0x00), c.registers[0xF]);
+}
+
+test "Modern profile preserves VF on logic ops" {
+    // Counterpart to the VIP test — modernChip8 does NOT reset vF.
+    var c = cpu.CPU.init();
+    c.registers[0] = 0xF0;
+    c.registers[1] = 0x0F;
+    c.registers[0xF] = 0xAB;
+    var memory = [_]u8{0} ** cpu.CHIP8_MEMORY_SIZE;
+
+    c.program_counter = 0;
+    memory[0] = 0x80;
+    memory[1] = 0x11;
+    try c.executeInstruction(&memory, emulation.profileQuirks(.modern));
+
+    try std.testing.expectEqual(@as(u8, 0xFF), c.registers[0]);
     try std.testing.expectEqual(@as(u8, 0xAB), c.registers[0xF]);
 }
 
 test "Draw wrap quirk changes edge behavior" {
-    var modern = cpu.CPU.init();
-    modern.registers[0] = 63;
-    modern.registers[1] = 31;
-    modern.index_register = 0x300;
-    var modern_memory = [_]u8{0} ** cpu.CHIP8_MEMORY_SIZE;
-    modern.program_counter = 0;
-    modern_memory[0x300] = 0xC0;
-    modern_memory[0] = 0xD0;
-    modern_memory[1] = 0x11;
-    try execModern(&modern, &modern_memory);
-    try std.testing.expectEqual(@as(u2, 1), modern.compositePixel(63, 31));
-    try std.testing.expectEqual(@as(u2, 1), modern.compositePixel(0, 31));
+    // XO-CHIP is the only modelled profile that wraps at the display edge;
+    // every other profile clips (per the chip-8-database `wrap` quirk).
+    var wrapping = cpu.CPU.init();
+    wrapping.registers[0] = 63;
+    wrapping.registers[1] = 31;
+    wrapping.index_register = 0x300;
+    var wrap_memory = [_]u8{0} ** cpu.CHIP8_MEMORY_SIZE;
+    wrapping.program_counter = 0;
+    wrap_memory[0x300] = 0xC0;
+    wrap_memory[0] = 0xD0;
+    wrap_memory[1] = 0x11;
+    try wrapping.executeInstruction(&wrap_memory, emulation.profileQuirks(.xo_chip));
+    try std.testing.expectEqual(@as(u2, 1), wrapping.compositePixel(63, 31));
+    try std.testing.expectEqual(@as(u2, 1), wrapping.compositePixel(0, 31));
 
     var legacy = cpu.CPU.init();
     legacy.registers[0] = 64;
@@ -682,7 +725,9 @@ test "CPU trace captures key wait, draw, memory transfer, and control flow micro
     memory[0] = 0xD1;
     memory[1] = 0x25;
     memory[0x300] = 0xF0;
-    try execModern(&c, &memory);
+    // xo_chip is now the only profile with wrap=true (modern clips per the
+    // chip-8-database default); use it here to exercise the wrap branch.
+    try c.executeInstruction(&memory, emulation.profileQuirks(.xo_chip));
     try std.testing.expectEqual(debugger.TraceTag.draw, c.last_trace.tag);
     switch (c.last_trace.destination) {
         .display => |display_focus| {

@@ -71,8 +71,10 @@ pub const VerificationReport = struct {
         allocator.free(self.axes);
     }
 
-    pub fn summary(self: VerificationReport) struct { pass: u32, fail: u32, skip: u32, err: u32 } {
-        var s = .{ .pass = @as(u32, 0), .fail = @as(u32, 0), .skip = @as(u32, 0), .err = @as(u32, 0) };
+    pub const Summary = struct { pass: u32 = 0, fail: u32 = 0, skip: u32 = 0, err: u32 = 0 };
+
+    pub fn summary(self: VerificationReport) Summary {
+        var s: Summary = .{};
         for (self.axes) |a| switch (a.verdict) {
             .pass => s.pass += 1,
             .fail => s.fail += 1,

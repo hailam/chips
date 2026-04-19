@@ -40,6 +40,14 @@ pub const DEFAULT_REGISTRIES: []const DefaultRegistry = &.{
         .repo = "JohnEarnest/chip8Archive",
         .globs = &.{"roms/*.ch8"},
     },
+    // Timendus's test suite (GPL-3.0) — the oracle corpus used by the
+    // verification axes. Users install tests on demand via
+    // `chip8 get timendus:<test-id>`; verify auto-resolves to the result.
+    .{
+        .name = "timendus",
+        .repo = "Timendus/chip8-test-suite",
+        .globs = &.{"bin/*.ch8"},
+    },
 };
 
 pub fn loadConfig(io: std.Io, allocator: std.mem.Allocator, app_data_root: []const u8) !Config {
@@ -60,6 +68,14 @@ pub fn loadConfig(io: std.Io, allocator: std.mem.Allocator, app_data_root: []con
         defer parsed.deinit();
         var cfg = try cloneConfig(allocator, parsed.value.known_registries, parsed.value.github_token);
         cfg.auto_apply_db_config = parsed.value.auto_apply_db_config;
+
+        // Migration: top up any DEFAULT_REGISTRIES entry the user doesn't
+        // already have by name. Preserves their tweaks (custom globs,
+        // renames, removals) but makes sure newly-shipped defaults land
+        // without the user having to delete config.json.
+        const added = try topUpDefaults(allocator, &cfg);
+        if (added > 0) try saveConfig(io, allocator, app_data_root, cfg);
+
         return cfg;
     }
 
@@ -67,6 +83,63 @@ pub fn loadConfig(io: std.Io, allocator: std.mem.Allocator, app_data_root: []con
     const cfg = Config{ .known_registries = defaults, .github_token = null, .auto_apply_db_config = true };
     try saveConfig(io, allocator, app_data_root, cfg);
     return cfg;
+}
+
+// Appends any DEFAULT_REGISTRIES entry absent from `cfg.known_registries`
+// (keyed by name). Returns the number of entries added so the caller can
+// skip the disk write when nothing changed. Caller-owned cfg is mutated
+// in place; the new slice is allocated with `cfg`'s allocator contract.
+fn topUpDefaults(allocator: std.mem.Allocator, cfg: *Config) !usize {
+    var missing: std.ArrayList(models.KnownRegistry) = .empty;
+    errdefer {
+        for (missing.items) |r| r.deinit(allocator);
+        missing.deinit(allocator);
+    }
+
+    for (DEFAULT_REGISTRIES) |def| {
+        var already_present = false;
+        for (cfg.known_registries) |existing| {
+            if (std.mem.eql(u8, existing.name, def.name)) {
+                already_present = true;
+                break;
+            }
+        }
+        if (already_present) continue;
+
+        var globs = try allocator.alloc([]const u8, def.globs.len);
+        var glob_pop: usize = 0;
+        errdefer {
+            for (globs[0..glob_pop]) |g| allocator.free(g);
+            allocator.free(globs);
+        }
+        for (def.globs, 0..) |g, i| {
+            globs[i] = try allocator.dupe(u8, g);
+            glob_pop = i + 1;
+        }
+        try missing.append(allocator, .{
+            .name = try allocator.dupe(u8, def.name),
+            .repo = try allocator.dupe(u8, def.repo),
+            .globs = globs,
+        });
+    }
+
+    if (missing.items.len == 0) {
+        missing.deinit(allocator);
+        return 0;
+    }
+
+    const added = missing.items.len;
+    const combined = try allocator.alloc(models.KnownRegistry, cfg.known_registries.len + added);
+    @memcpy(combined[0..cfg.known_registries.len], cfg.known_registries);
+    const new_entries = try missing.toOwnedSlice(allocator);
+    defer allocator.free(new_entries);
+    @memcpy(combined[cfg.known_registries.len..], new_entries);
+
+    // The old outer slice can go; its KnownRegistry entries now live in
+    // `combined`. Just free the slice, not the contents.
+    allocator.free(cfg.known_registries);
+    cfg.known_registries = combined;
+    return added;
 }
 
 pub fn saveConfig(io: std.Io, allocator: std.mem.Allocator, app_data_root: []const u8, config: Config) !void {
