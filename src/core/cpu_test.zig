@@ -20,6 +20,7 @@ comptime {
     _ = @import("state.zig");
     _ = @import("verification/oracle/spec.zig");
     _ = @import("verification/oracle/ground_truth.zig");
+    _ = @import("verification/oracle/reference_framebuffers.zig");
     _ = @import("verification/runtime_check.zig");
     _ = @import("verification/report.zig");
     _ = @import("verification/test_suite.zig");

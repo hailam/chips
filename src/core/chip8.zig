@@ -74,12 +74,21 @@ pub const Chip8 = struct {
     }
 
     pub fn loadRom(self: *Chip8, rom_data: []const u8) !void {
-        if (rom_data.len > CHIP8_MEMORY_SIZE - 0x200) {
+        return self.loadRomAt(rom_data, 0x200);
+    }
+
+    // Load a ROM at an arbitrary entry address. Used when the
+    // chip-8-database specifies a non-default `startAddress` (e.g. 0x600
+    // for ETI-660 ROMs). Caller must also set `cpu.program_counter` to
+    // this address before execution starts.
+    pub fn loadRomAt(self: *Chip8, rom_data: []const u8, start_address: u16) !void {
+        if (@as(usize, start_address) + rom_data.len > CHIP8_MEMORY_SIZE) {
             return error.RomTooLarge;
         }
-        @memset(self.memory[0x200..], 0);
-        @memcpy(self.memory[0x200..][0..rom_data.len], rom_data);
+        @memset(self.memory[start_address..], 0);
+        @memcpy(self.memory[start_address..][0..rom_data.len], rom_data);
         self.rom_size = @intCast(rom_data.len);
+        self.cpu.program_counter = start_address;
     }
 
     pub fn update(self: *Chip8) !void {

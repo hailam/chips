@@ -20,6 +20,7 @@ const axis_memory = @import("core/verification/axis/memory.zig");
 const axis_sound = @import("core/verification/axis/sound.zig");
 const inference_audit = @import("core/verification/inference_audit.zig");
 const corpus_mod = @import("core/verification/corpus.zig");
+const ref_fb_mod = @import("core/verification/oracle/reference_framebuffers.zig");
 const control = @import("core/control_spec.zig");
 const cpu_mod = @import("core/cpu.zig");
 const debugger_mod = @import("core/debugger.zig");
@@ -715,13 +716,33 @@ fn loadRomIntoRuntime(
     else
         inferred_profile;
     const saved_hz = if (pref) |value| value.cpu_hz_target else null;
-    const hz = timing.preferredStartupCpuHz(saved_hz, profile);
-    const save_slot = if (pref) |value| clampSlot(value.last_save_slot) else @as(u8, 1);
     const analysis = assembly.analyzeRomForProfile(profile, rom_data);
 
-    chip8.* = Chip8.initWithConfig(emulation.EmulationConfig.init(profile));
+    // Build the emulation config. When a user explicitly requested a profile
+    // on the CLI, honor that over the resolver's guess; otherwise use the
+    // full resolved bundle so database `quirkyPlatforms` overrides actually
+    // reach the CPU. Non-db QuirkFlags (hires, xo support, rpl depth, etc.)
+    // stay at the profile's defaults.
+    const emulation_config = if (requested_profile != null)
+        emulation.EmulationConfig.init(profile)
+    else
+        runtime_check.emulationConfigFromResolution(resolution);
+
+    // CPU speed: db tickrate (cycles per frame at 60Hz) wins over the
+    // inferred profile default, unless the user has a saved preference for
+    // this exact ROM.
+    const hz_from_resolution: i32 = @intCast(resolution.config.tickrate * 60);
+    const hz = if (saved_hz) |v|
+        v
+    else if (requested_profile == null and resolution.layer == .database_match)
+        timing.clampCpuHz(hz_from_resolution)
+    else
+        timing.preferredStartupCpuHz(saved_hz, profile);
+    const save_slot = if (pref) |value| clampSlot(value.last_save_slot) else @as(u8, 1);
+
+    chip8.* = Chip8.initWithConfig(emulation_config);
     seedChip8(chip8);
-    try chip8.loadRom(rom_data);
+    try chip8.loadRomAt(rom_data, resolution.config.start_address);
 
     timing_state.* = timing.TimingState.init();
     timing_state.cpu_hz_target = @floatFromInt(hz);
@@ -1336,11 +1357,24 @@ fn runVerifyTest(init: std.process.Init, test_id_str: []const u8, rom_path_opt: 
     const rom_bytes = try std.Io.Dir.cwd().readFileAlloc(init.io, resolved_path, init.gpa, .limited(cpu_mod.CHIP8_MEMORY_SIZE));
     defer init.gpa.free(rom_bytes);
 
+    // SHA-1 of the ROM: lets the axis look up a shipped reference hash
+    // without the user typing it on the CLI.
+    const sha1_bin = models.computeRomSha1(rom_bytes);
+    const sha1_hex = try models.sha1HexAlloc(init.gpa, sha1_bin);
+    defer init.gpa.free(sha1_hex);
+
+    const app_data_root = try persistence.defaultAppDataRootAlloc(init.gpa, init.minimal.environ);
+    defer init.gpa.free(app_data_root);
+    var store = ref_fb_mod.load(init.io, init.gpa, app_data_root) catch ref_fb_mod.Store{ .allocator = init.gpa };
+    defer store.deinit();
+
     // For now every test ID routes through the opcodes-style runner. When we
     // grow more axes this should dispatch to per-test analyzers instead.
     const rep = try axis_opcodes.runCoraxPlus(init.gpa, rom_bytes, .{
         .rom_id = test_id.displayName(),
         .reference_hash = reference,
+        .store = &store,
+        .rom_sha1 = sha1_hex,
     });
     defer rep.deinit(init.gpa);
 

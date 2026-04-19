@@ -2,6 +2,7 @@ const std = @import("std");
 const report_mod = @import("../report.zig");
 const test_suite = @import("../test_suite.zig");
 const emulation = @import("../../emulation_config.zig");
+const ref_fb = @import("../oracle/reference_framebuffers.zig");
 
 // Opcode axis. Oracle: Timendus's 3-corax+.ch8 (and 4-flags.ch8 later).
 //
@@ -21,8 +22,14 @@ const emulation = @import("../../emulation_config.zig");
 
 pub const RunOptions = struct {
     // Optional reference framebuffer hash (SHA-256, lowercase hex) to
-    // compare against. null → use the heuristic.
+    // compare against. null → use the heuristic OR consult `store` if set.
     reference_hash: ?[]const u8 = null,
+    // Optional reference-framebuffer store; if the ROM's sha1 is keyed in
+    // it AND a snapshot exists at the cycle we ran, the axis uses that
+    // hash as the reference before falling back to the heuristic.
+    store: ?*const ref_fb.Store = null,
+    // ROM's SHA-1, needed to query the store. Skipped when null.
+    rom_sha1: ?[]const u8 = null,
     cycles: ?u32 = null,
     profile: emulation.QuirkProfile = .vip_legacy,
     rom_id: []const u8 = "3-corax+",
@@ -47,8 +54,19 @@ pub fn runCoraxPlus(
     const hash_hex = try hexEncode(allocator, result.framebuffer_hash);
     errdefer allocator.free(hash_hex);
 
+    // If no explicit reference was passed but we have a store and sha1,
+    // try the store for a snapshot at this cycle count. Silently falls
+    // through to heuristic if no match.
+    const ref_from_store: ?[]const u8 = blk: {
+        if (opts.reference_hash != null) break :blk null;
+        const store = opts.store orelse break :blk null;
+        const sha1 = opts.rom_sha1 orelse break :blk null;
+        break :blk store.snapshotAt(sha1, result.cycles_run);
+    };
+    const effective_ref = opts.reference_hash orelse ref_from_store;
+
     // Hash-based verdict wins when a reference is supplied.
-    if (opts.reference_hash) |ref| {
+    if (effective_ref) |ref| {
         const verdict: report_mod.Verdict = if (std.ascii.eqlIgnoreCase(ref, hash_hex)) .pass else .fail;
         const details = try std.fmt.allocPrint(allocator, "observed_hash={s} ran={d}", .{ hash_hex, result.cycles_run });
         const diagnostics = if (verdict == .fail) try buildMismatchDiagnostics(allocator, ref, hash_hex, result) else try allocator.alloc(report_mod.Diagnostic, 0);

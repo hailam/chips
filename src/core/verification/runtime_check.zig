@@ -48,6 +48,26 @@ pub const ConfigResolution = struct {
     }
 };
 
+// Builds a concrete EmulationConfig from a resolved config bundle. Starts
+// from the selected profile's default quirks (all 14 flags) and overrides
+// the 4 flags that chip-8-database models (shift/wrap/jump/logic) with the
+// oracle's values. Non-db flags stay at profile defaults.
+//
+// This is how a `quirkyPlatforms` override — which the database represents
+// as a partial override on the 7 canonical quirks — actually reaches the
+// CPU.
+pub fn emulationConfigFromResolution(resolution: ConfigResolution) emulation.EmulationConfig {
+    const profile = emulation.platformIdToProfile(resolution.config.platform) orelse .modern;
+    var cfg = emulation.EmulationConfig.init(profile);
+    // Translate spec.Quirks → our QuirkFlags. Only the 4 fields with a
+    // clean 1:1 mapping are touched; the others stay as the profile set.
+    cfg.quirks.shift_uses_vy = !resolution.config.quirks.shift;
+    cfg.quirks.draw_wrap = resolution.config.quirks.wrap;
+    cfg.quirks.jump_uses_vx = resolution.config.quirks.jump;
+    cfg.quirks.logic_ops_clear_vf = resolution.config.quirks.logic;
+    return cfg;
+}
+
 // Entry point for the ROM loader.
 //
 // `user_profile` is the profile the user asked for on the command line (or
@@ -208,6 +228,27 @@ fn embeddedTitleMismatch(
         .expected = try allocator.dupe(u8, expected),
         .found = try allocator.dupe(u8, found),
     };
+}
+
+test "emulationConfigFromResolution respects spec.Quirks overrides" {
+    // Hand-build a resolution pointing at xochip but with `wrap` forced off
+    // — that's the shape a `quirkyPlatforms` override produces.
+    const cfg = ground_truth.RomConfig{
+        .platform = "xochip",
+        .quirks = .{ .shift = false, .memoryIncrementByX = false, .memoryLeaveIUnchanged = false, .wrap = false, .jump = false, .vblank = false, .logic = false },
+        .tickrate = 100,
+    };
+    const res = ConfigResolution{ .layer = .database_match, .config = cfg };
+
+    const ec = emulationConfigFromResolution(res);
+    try std.testing.expectEqual(emulation.QuirkProfile.xo_chip, ec.quirk_profile);
+    try std.testing.expect(ec.quirks.shift_uses_vy); // !quirks.shift
+    try std.testing.expect(!ec.quirks.draw_wrap); // overridden off despite xochip default
+    try std.testing.expect(!ec.quirks.logic_ops_clear_vf);
+    try std.testing.expect(!ec.quirks.jump_uses_vx);
+    // XO-CHIP profile-specific non-db flags pass through unmodified.
+    try std.testing.expect(ec.quirks.supports_xo);
+    try std.testing.expect(ec.quirks.supports_hires);
 }
 
 test "resolveConfigForRom uses inference for marker-free ROM" {
