@@ -18,6 +18,7 @@ const verify_test_suite = @import("core/verification/test_suite.zig");
 const axis_opcodes = @import("core/verification/axis/opcodes.zig");
 const axis_memory = @import("core/verification/axis/memory.zig");
 const axis_sound = @import("core/verification/axis/sound.zig");
+const axis_quirks = @import("core/verification/axis/quirks.zig");
 const inference_audit = @import("core/verification/inference_audit.zig");
 const corpus_mod = @import("core/verification/corpus.zig");
 const ref_fb_mod = @import("core/verification/oracle/reference_framebuffers.zig");
@@ -1461,7 +1462,44 @@ fn runVerifyAxis(init: std.process.Init, a: anytype) !void {
         return;
     }
 
-    std.debug.print("Unknown axis: {s}  (available: opcodes, memory, sound)\n", .{a.axis_name});
+    if (std.mem.eql(u8, a.axis_name, "quirks")) {
+        // Auto-resolve 5-quirks.ch8 when no path was passed.
+        const rom_path = a.rom_path orelse (try resolveInstalledTestRom(init, .quirks)) orelse {
+            std.debug.print("axis quirks needs 5-quirks.ch8. Run `chip8 get timendus:5-quirks` first.\n", .{});
+            std.process.exit(2);
+        };
+        defer if (a.rom_path == null) init.gpa.free(rom_path);
+        const rom_bytes = try std.Io.Dir.cwd().readFileAlloc(init.io, rom_path, init.gpa, .limited(cpu_mod.CHIP8_MEMORY_SIZE));
+        defer init.gpa.free(rom_bytes);
+
+        // Reference store for precise grading when captures exist.
+        const app_data_root = try persistence.defaultAppDataRootAlloc(init.gpa, init.minimal.environ);
+        defer init.gpa.free(app_data_root);
+        var store = ref_fb_mod.load(init.io, init.gpa, app_data_root) catch ref_fb_mod.Store{ .allocator = init.gpa };
+        defer store.deinit();
+        const sha1_bin = models.computeRomSha1(rom_bytes);
+        const sha1_hex = try models.sha1HexAlloc(init.gpa, sha1_bin);
+        defer init.gpa.free(sha1_hex);
+
+        const reports = try axis_quirks.runForRom(init.gpa, rom_bytes, .{
+            .rom_id = "5-quirks",
+            .store = &store,
+            .rom_sha1 = sha1_hex,
+        });
+        defer {
+            for (reports) |r| r.deinit(init.gpa);
+            init.gpa.free(reports);
+        }
+        var any_failed = false;
+        for (reports) |r| {
+            try emitAxisReport(init, r);
+            if (r.verdict == .fail or r.verdict == .harness_error) any_failed = true;
+        }
+        if (any_failed) std.process.exit(1);
+        return;
+    }
+
+    std.debug.print("Unknown axis: {s}  (available: opcodes, memory, sound, quirks)\n", .{a.axis_name});
     std.process.exit(2);
 }
 

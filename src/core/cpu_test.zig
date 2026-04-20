@@ -27,6 +27,7 @@ comptime {
     _ = @import("verification/axis/opcodes.zig");
     _ = @import("verification/axis/memory.zig");
     _ = @import("verification/axis/sound.zig");
+    _ = @import("verification/axis/quirks.zig");
     _ = @import("verification/inference_audit.zig");
     _ = @import("verification/corpus.zig");
 }
