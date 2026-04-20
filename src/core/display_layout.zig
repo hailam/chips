@@ -2,6 +2,39 @@ const std = @import("std");
 const control = @import("control_spec.zig");
 const cpu_mod = @import("cpu.zig");
 
+// Apply a 0 / 90 / 180 / 270 rotation to a (col, row) source cell and
+// return the destination cell for the rotated canvas. Pure function kept
+// here rather than in display.zig so the tests run under `zig build test`
+// (display.zig depends on raylib).
+pub const RotatedCell = struct { col: usize, row: usize };
+
+pub fn rotatedCell(rotation: u16, col: usize, row: usize, logical_w: usize, logical_h: usize) RotatedCell {
+    return switch (rotation) {
+        90 => .{ .col = logical_h - 1 - row, .row = col },
+        180 => .{ .col = logical_w - 1 - col, .row = logical_h - 1 - row },
+        270 => .{ .col = row, .row = logical_w - 1 - col },
+        else => .{ .col = col, .row = row },
+    };
+}
+
+test "rotatedCell: 0° is identity" {
+    const r = rotatedCell(0, 3, 5, 64, 32);
+    try std.testing.expectEqual(@as(usize, 3), r.col);
+    try std.testing.expectEqual(@as(usize, 5), r.row);
+}
+
+test "rotatedCell: 90° CW sends top-right to bottom-right" {
+    const r = rotatedCell(90, 63, 0, 64, 32);
+    try std.testing.expectEqual(@as(usize, 31), r.col);
+    try std.testing.expectEqual(@as(usize, 63), r.row);
+}
+
+test "rotatedCell: 180° negates both axes" {
+    const r = rotatedCell(180, 10, 20, 64, 32);
+    try std.testing.expectEqual(@as(usize, 53), r.col);
+    try std.testing.expectEqual(@as(usize, 11), r.row);
+}
+
 pub const DISPLAY_BASE_W = cpu_mod.DISPLAY_WIDTH;
 pub const DISPLAY_BASE_H = cpu_mod.DISPLAY_HEIGHT;
 

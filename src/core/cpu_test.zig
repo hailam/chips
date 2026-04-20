@@ -29,6 +29,7 @@ comptime {
     _ = @import("verification/axis/sound.zig");
     _ = @import("verification/axis/quirks.zig");
     _ = @import("verification/axis/timing.zig");
+    _ = @import("fonts.zig");
     _ = @import("verification/inference_audit.zig");
     _ = @import("verification/corpus.zig");
 }

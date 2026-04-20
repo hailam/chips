@@ -28,6 +28,13 @@ const physical_key_map = [_]rl.KeyboardKey{
     // They're part of the poll so override lookup can see their state.
     .space,
     .left_shift,
+    // Player-2 physical targets.
+    .i,
+    .j,
+    .k,
+    .l,
+    .period,
+    .slash,
 };
 
 // Per-ROM arrow-key overrides. When a chip-8-database match provides
@@ -44,6 +51,14 @@ pub const ArrowOverrides = struct {
     right: ?u4,
     a: ?u4 = null,
     b: ?u4 = null,
+    // Player-2 d-pad + action bindings. Mapped to IJKL + Period/Slash at
+    // the physical layer (see control_spec).
+    p2_up: ?u4 = null,
+    p2_down: ?u4 = null,
+    p2_left: ?u4 = null,
+    p2_right: ?u4 = null,
+    p2_a: ?u4 = null,
+    p2_b: ?u4 = null,
 };
 
 pub fn setArrowOverrides(next: ArrowOverrides) void {
@@ -51,7 +66,20 @@ pub fn setArrowOverrides(next: ArrowOverrides) void {
 }
 
 pub fn clearArrowOverrides() void {
-    arrow_overrides = .{ .up = null, .down = null, .left = null, .right = null, .a = null, .b = null };
+    arrow_overrides = .{
+        .up = null,
+        .down = null,
+        .left = null,
+        .right = null,
+        .a = null,
+        .b = null,
+        .p2_up = null,
+        .p2_down = null,
+        .p2_left = null,
+        .p2_right = null,
+        .p2_a = null,
+        .p2_b = null,
+    };
 }
 
 pub fn pollKeys() [16]bool {
@@ -121,5 +149,24 @@ fn applyArrowOverrides(keys: *[16]bool, pressed: *const [physical_key_map.len]bo
     }
     if (arrow_overrides.b) |ch| {
         if (pressed[control.physicalKeyIndex(.left_shift)]) keys[ch] = true;
+    }
+    // Player-2 overlays — same no-canonical-clear approach.
+    if (arrow_overrides.p2_up) |ch| {
+        if (pressed[control.physicalKeyIndex(.i)]) keys[ch] = true;
+    }
+    if (arrow_overrides.p2_down) |ch| {
+        if (pressed[control.physicalKeyIndex(.k)]) keys[ch] = true;
+    }
+    if (arrow_overrides.p2_left) |ch| {
+        if (pressed[control.physicalKeyIndex(.j)]) keys[ch] = true;
+    }
+    if (arrow_overrides.p2_right) |ch| {
+        if (pressed[control.physicalKeyIndex(.l)]) keys[ch] = true;
+    }
+    if (arrow_overrides.p2_a) |ch| {
+        if (pressed[control.physicalKeyIndex(.period)]) keys[ch] = true;
+    }
+    if (arrow_overrides.p2_b) |ch| {
+        if (pressed[control.physicalKeyIndex(.slash)]) keys[ch] = true;
     }
 }

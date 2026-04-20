@@ -155,6 +155,30 @@ pub const HistorySnapshot = struct {
     entries: []HistoryEntry = &.{},
 };
 
+// Rolling window of recent `verify all` runs. New runs are appended and
+// the list truncated to `HISTORY_MAX_RUNS` so the file size stays bounded.
+// Kept backward-compatible: `loadHistoryFile` accepts both the current
+// multi-run shape and the older single-snapshot shape by probing for the
+// `runs` key.
+pub const HISTORY_MAX_RUNS: usize = 20;
+
+pub const MultiHistory = struct {
+    runs: []HistorySnapshot = &.{},
+
+    // Most recent snapshot, or null when no runs recorded.
+    pub fn last(self: MultiHistory) ?HistorySnapshot {
+        if (self.runs.len == 0) return null;
+        return self.runs[self.runs.len - 1];
+    }
+
+    // Snapshot `age` runs before the most recent. age=0 means last().
+    // Returns null if age is out of bounds.
+    pub fn nthFromEnd(self: MultiHistory, age: usize) ?HistorySnapshot {
+        if (age >= self.runs.len) return null;
+        return self.runs[self.runs.len - 1 - age];
+    }
+};
+
 pub fn entriesForHistory(allocator: Allocator, report: VerificationReport) ![]HistoryEntry {
     var out = try allocator.alloc(HistoryEntry, report.axes.len);
     var populated: usize = 0;

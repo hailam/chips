@@ -27,6 +27,15 @@ pub const PhysicalKey = enum {
     // position), only in the runtime override path in input.zig.
     space,
     left_shift,
+    // Player-2 physical targets (classic arcade layout): IJKL for the
+    // second-player d-pad, Period/Slash for action buttons. Same runtime-
+    // only binding pattern as A/B.
+    i,
+    j,
+    k,
+    l,
+    period,
+    slash,
 };
 
 pub const Chip8Binding = struct {

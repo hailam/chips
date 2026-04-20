@@ -215,6 +215,18 @@ var primary_color_override: ?rl.Color = null;
 var secondary_color_override: ?rl.Color = null;
 var blended_color_override: ?rl.Color = null;
 var background_color_override: ?rl.Color = null;
+var screen_rotation_override: u16 = 0; // 0/90/180/270
+
+pub fn setScreenRotation(degrees: u16) void {
+    screen_rotation_override = switch (degrees) {
+        90, 180, 270 => degrees,
+        else => 0,
+    };
+}
+
+pub fn clearScreenRotation() void {
+    screen_rotation_override = 0;
+}
 
 pub fn setPrimaryColorOverride(color: rl.Color) void {
     primary_color_override = color;
@@ -720,20 +732,29 @@ fn renderDisplay(
     for (0..logical_h) |row| {
         for (0..logical_w) |col| {
             const pixel = cpu.compositePixel(col, row);
-            if (pixel != 0) {
-                const color = switch (pixel) {
-                    1 => primary,
-                    2 => secondary,
-                    3 => blended,
-                    else => primary,
-                };
-                rl.drawRectangleRec(.{
-                    .x = @as(f32, @floatFromInt(panel.x)) + @as(f32, @floatFromInt(col)) * cell_w,
-                    .y = @as(f32, @floatFromInt(panel.y)) + @as(f32, @floatFromInt(row)) * cell_h,
-                    .width = cell_w,
-                    .height = cell_h,
-                }, color);
-            }
+            if (pixel == 0) continue;
+            const color = switch (pixel) {
+                1 => primary,
+                2 => secondary,
+                3 => blended,
+                else => primary,
+            };
+            // Apply the per-ROM screen rotation when shipping pixels to
+            // the canvas. 0/180 keep the source aspect; 90/270 swap axes,
+            // so the rendered canvas is taller-than-wide for those cases.
+            // Cell sizing itself is unchanged — any aspect mismatch with
+            // the panel just leaves letterboxing, acceptable for the rare
+            // `screen_rotation`-using ROM.
+            const lw = logical_w;
+            const lh = logical_h;
+            const rot = screen_rotation_override;
+            const pos = layout.rotatedCell(rot, col, row, lw, lh);
+            rl.drawRectangleRec(.{
+                .x = @as(f32, @floatFromInt(panel.x)) + @as(f32, @floatFromInt(pos.col)) * cell_w,
+                .y = @as(f32, @floatFromInt(panel.y)) + @as(f32, @floatFromInt(pos.row)) * cell_h,
+                .width = cell_w,
+                .height = cell_h,
+            }, color);
         }
     }
     if (settings.effect == .scanlines and cell_h > 1.5) {

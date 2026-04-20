@@ -101,6 +101,8 @@ pub const VerifyCommand = union(enum) {
         json: bool = false,
         diff: bool = false,
         save: bool = true,
+        // Number of runs-back to use as the diff baseline. 0 = last run.
+        diff_age: u32 = 0,
     },
 };
 
@@ -293,6 +295,7 @@ fn parseVerifyArgs(args: []const []const u8) ParseError!VerifyCommand {
         var json: bool = false;
         var diff: bool = false;
         var save: bool = true;
+        var diff_age: u32 = 0;
         for (args[1..]) |a| {
             if (std.mem.eql(u8, a, "--json")) {
                 json = true;
@@ -300,9 +303,12 @@ fn parseVerifyArgs(args: []const []const u8) ParseError!VerifyCommand {
                 diff = true;
             } else if (std.mem.eql(u8, a, "--no-save")) {
                 save = false;
+            } else if (std.mem.startsWith(u8, a, "--diff-age=")) {
+                diff_age = std.fmt.parseInt(u32, a["--diff-age=".len..], 10) catch return error.InvalidCommand;
+                diff = true; // implies --diff
             } else return error.UnexpectedArgument;
         }
-        return .{ .all = .{ .json = json, .diff = diff, .save = save } };
+        return .{ .all = .{ .json = json, .diff = diff, .save = save, .diff_age = diff_age } };
     }
     if (std.mem.eql(u8, sub, "inference")) {
         var max_disagreements: u32 = 10;
@@ -399,7 +405,7 @@ pub fn usage() []const u8 {
         \\                                  # run a single correctness axis (opcodes, memory, sound, quirks)
         \\  chip8 verify inference [--disagreements=<N>] [--threshold=<pct>] [--no-save] [--json]
         \\                                  # grade the inference engine against chip-8-database
-        \\  chip8 verify all [--json] [--diff] [--no-save]
+        \\  chip8 verify all [--json] [--diff] [--diff-age=<N>] [--no-save]
         \\                                  # run every fixture-free axis + inference audit
         \\  chip8 override <rom-id> [--shift=on|off] [--wrap=on|off] [--jump=on|off]
         \\                         [--logic=on|off] [--tickrate=<n>] [--start=<hex>]

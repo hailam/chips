@@ -13,6 +13,7 @@ const chip8_db_cache = @import("core/chip8_db_cache.zig");
 const spec_mod = @import("core/spec.zig");
 const github_mod = @import("core/github.zig");
 const runtime_check = @import("core/verification/runtime_check.zig");
+const fonts = @import("core/fonts.zig");
 const verify_report = @import("core/verification/report.zig");
 const verify_test_suite = @import("core/verification/test_suite.zig");
 const axis_opcodes = @import("core/verification/axis/opcodes.zig");
@@ -744,6 +745,7 @@ fn loadRomIntoRuntime(
     const save_slot = if (pref) |value| clampSlot(value.last_save_slot) else @as(u8, 1);
 
     chip8.* = Chip8.initWithConfig(emulation_config);
+    applyFontFromResolution(chip8, resolution);
     seedChip8(chip8);
     try chip8.loadRomAt(rom_data, resolution.config.start_address);
 
@@ -752,6 +754,8 @@ fn loadRomIntoRuntime(
     applyArrowOverridesFromResolution(resolution);
     // Same treatment for the foreground pixel color.
     applyDisplayColorFromResolution(resolution);
+    // Screen rotation: 0/90/180/270 from chip-8-database.
+    display.setScreenRotation(resolution.config.screen_rotation);
 
     timing_state.* = timing.TimingState.init();
     timing_state.cpu_hz_target = @floatFromInt(hz);
@@ -806,6 +810,15 @@ fn loadRomIntoRuntime(
     };
 }
 
+// Applies the resolution's `font_style` string to the emulator's font
+// memory region. Falls back to the default (octo) on unknown/missing
+// values so ROMs with no hint still render digits sensibly.
+fn applyFontFromResolution(chip8: *Chip8, resolution: runtime_check.ConfigResolution) void {
+    const name = resolution.config.font_style orelse return;
+    const style = fonts.FontStyle.fromString(name) orelse return;
+    chip8.loadFont(style);
+}
+
 // Applies the resolution's `colors.pixels[1]` (foreground) to the display
 // module's primary-color override. `pixels[0]` (background) isn't wired
 // yet — our display pads the canvas with a fixed dark rectangle and
@@ -854,6 +867,12 @@ fn applyArrowOverridesFromResolution(resolution: runtime_check.ConfigResolution)
         .right = narrowKey(keys.right),
         .a = narrowKey(keys.a),
         .b = narrowKey(keys.b),
+        .p2_up = narrowKey(keys.player2Up),
+        .p2_down = narrowKey(keys.player2Down),
+        .p2_left = narrowKey(keys.player2Left),
+        .p2_right = narrowKey(keys.player2Right),
+        .p2_a = narrowKey(keys.player2A),
+        .p2_b = narrowKey(keys.player2B),
     });
 }
 
@@ -1399,11 +1418,11 @@ fn runVerifyCommand(init: std.process.Init, cmd: cli.VerifyCommand) !void {
         .tests => |t| try runVerifyTest(init, t.test_id, t.rom_path, t.reference_hash, t.json),
         .axis => |a| try runVerifyAxis(init, a),
         .inference => |i| try runVerifyInference(init, i.max_disagreements, i.threshold_pct, i.save, i.json),
-        .all => |a| try runVerifyAll(init, a.json, a.diff, a.save),
+        .all => |a| try runVerifyAll(init, a.json, a.diff, a.save, a.diff_age),
     }
 }
 
-fn runVerifyAll(init: std.process.Init, json: bool, diff: bool, save: bool) !void {
+fn runVerifyAll(init: std.process.Init, json: bool, diff: bool, save: bool, diff_age: u32) !void {
     const app_data_root = try persistence.defaultAppDataRootAlloc(init.gpa, init.minimal.environ);
     defer init.gpa.free(app_data_root);
 
@@ -1437,29 +1456,55 @@ fn runVerifyAll(init: std.process.Init, json: bool, diff: bool, save: bool) !voi
         try verify_report.formatHuman(report, w);
     }
 
-    // Build a persistable snapshot of the current run.
     const current_entries = try verify_report.entriesForHistory(init.gpa, report);
     defer verify_report.freeHistoryEntries(init.gpa, current_entries);
 
     const history_path = try std.fmt.allocPrint(init.gpa, "{s}/verification/verify_history.json", .{app_data_root});
     defer init.gpa.free(history_path);
 
-    // --diff: load baseline, show transitions, exit non-zero on regressions.
+    // Load the existing history file. Try the new rolling-window shape
+    // first; fall back to the legacy single-snapshot shape for backward
+    // compat with files written before this feature.
+    const multi_parsed = cache.readJson(init.io, init.gpa, history_path, verify_report.MultiHistory) catch null;
+    defer if (multi_parsed) |p| p.deinit();
+
+    var legacy_parsed: ?std.json.Parsed(verify_report.HistorySnapshot) = null;
+    defer if (legacy_parsed) |p| p.deinit();
+
+    const existing_history: verify_report.MultiHistory = if (multi_parsed) |p|
+        p.value
+    else blk: {
+        legacy_parsed = cache.readJson(init.io, init.gpa, history_path, verify_report.HistorySnapshot) catch null;
+        if (legacy_parsed) |p| {
+            // Legacy single-snapshot file — wrap in a one-run history.
+            const runs = try init.gpa.alloc(verify_report.HistorySnapshot, 1);
+            runs[0] = p.value;
+            break :blk verify_report.MultiHistory{ .runs = runs };
+        }
+        break :blk verify_report.MultiHistory{ .runs = &.{} };
+    };
+    // Adopt legacy runs into a gpa slice we can free below.
+    const legacy_wrapper: bool = legacy_parsed != null;
+
+    // --diff: pick baseline run, compare, and exit non-zero on regressions.
     var had_regression = false;
     if (diff) {
-        const baseline_parsed = cache.readJson(init.io, init.gpa, history_path, verify_report.HistorySnapshot) catch null;
-        defer if (baseline_parsed) |p| p.deinit();
-
-        const baseline_entries: []const verify_report.HistoryEntry = if (baseline_parsed) |p| p.value.entries else &.{};
+        const baseline_snapshot = existing_history.nthFromEnd(diff_age);
+        const baseline_entries: []const verify_report.HistoryEntry = if (baseline_snapshot) |s| s.entries else &.{};
         const d = try verify_report.diffReports(init.gpa, baseline_entries, current_entries);
         defer d.deinit(init.gpa);
 
         if (!json) {
-            try w.print("\nDiff vs last verify-all run ({d} unchanged, {d} changed):\n", .{ d.unchanged_count, d.changed.len });
-            for (d.changed) |row| {
-                try w.print("  {s} :: {s}  {s} → {s}\n", .{ row.axis, row.rom_id, row.before, row.after });
+            const label = if (diff_age == 0) "last" else "older";
+            if (baseline_snapshot == null) {
+                try w.print("\nDiff vs {s} run: (no baseline recorded at that depth)\n", .{label});
+            } else {
+                try w.print("\nDiff vs {s} run [{d} runs back] ({d} unchanged, {d} changed):\n", .{ label, diff_age, d.unchanged_count, d.changed.len });
+                for (d.changed) |row| {
+                    try w.print("  {s} :: {s}  {s} → {s}\n", .{ row.axis, row.rom_id, row.before, row.after });
+                }
+                if (d.changed.len == 0) try w.print("  (none)\n", .{});
             }
-            if (d.changed.len == 0) try w.print("  (none)\n", .{});
         }
         had_regression = d.hasRegressions();
     }
@@ -1467,12 +1512,31 @@ fn runVerifyAll(init: std.process.Init, json: bool, diff: bool, save: bool) !voi
     try w.flush();
 
     if (save) {
-        const snapshot = verify_report.HistorySnapshot{
+        // Append current run + truncate to the rolling window.
+        const new_run = verify_report.HistorySnapshot{
             .timestamp_ms = std.Io.Clock.now(.real, init.io).toMilliseconds(),
             .entries = current_entries,
         };
-        try cache.writeJsonAtomic(init.io, init.gpa, history_path, snapshot);
+        const combined_len = existing_history.runs.len + 1;
+        const start: usize = if (combined_len > verify_report.HISTORY_MAX_RUNS) combined_len - verify_report.HISTORY_MAX_RUNS else 0;
+        const keep = combined_len - start;
+        const runs = try init.gpa.alloc(verify_report.HistorySnapshot, keep);
+        defer init.gpa.free(runs);
+        // `start` here is relative to the combined (old + new) list. Copy
+        // the appropriate suffix of old runs, then append the new one.
+        const old_take = existing_history.runs.len - @min(start, existing_history.runs.len);
+        const old_start = existing_history.runs.len - old_take;
+        var i: usize = 0;
+        while (i < old_take) : (i += 1) runs[i] = existing_history.runs[old_start + i];
+        runs[keep - 1] = new_run;
+
+        const view = verify_report.MultiHistory{ .runs = runs };
+        try cache.writeJsonAtomic(init.io, init.gpa, history_path, view);
     }
+
+    // If we adopted the legacy file into a one-element slice via alloc,
+    // free that slice now that persistence is done.
+    if (legacy_wrapper) init.gpa.free(existing_history.runs);
 
     const s = report.summary();
     if (s.fail > 0 or s.err > 0 or had_regression) std.process.exit(1);

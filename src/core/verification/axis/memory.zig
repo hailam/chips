@@ -199,3 +199,27 @@ test "runForRom succeeds at non-default start address" {
     defer rep.deinit(allocator);
     try std.testing.expect(rep.verdict == .pass);
 }
+
+test "runForRom exercises ETI-660 with real work after the entry jump" {
+    const allocator = std.testing.allocator;
+    // Slightly more than a JP-loop: loads a value, writes it to memory via
+    // FX55, jumps back. Exercises the loader placing instructions at 0x600
+    // end-to-end (not just the PC).
+    //   0x600  60 7B     LD V0, 0x7B
+    //   0x602  A7 00     LD I, 0x700
+    //   0x604  F0 55     LD [I], V0
+    //   0x606  16 00     JP 0x600
+    const rom = [_]u8{ 0x60, 0x7B, 0xA7, 0x00, 0xF0, 0x55, 0x16, 0x00 };
+    const rep = try runForRom(allocator, &rom, .{ .cycles = 5000, .start_address = 0x600 });
+    defer rep.deinit(allocator);
+    try std.testing.expect(rep.verdict == .pass);
+}
+
+test "runForRom reports ROM+start overflow cleanly" {
+    const allocator = std.testing.allocator;
+    // 65535 bytes of zeros starting at 0x10 → overflows memory.
+    var rom = [_]u8{0} ** 64;
+    const rep = try runForRom(allocator, &rom, .{ .start_address = 0xFFFF });
+    defer rep.deinit(allocator);
+    try std.testing.expect(rep.verdict == .fail);
+}
