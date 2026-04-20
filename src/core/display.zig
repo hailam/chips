@@ -206,19 +206,31 @@ fn withAlpha(color: rl.Color, alpha: u8) rl.Color {
     return .{ .r = color.r, .g = color.g, .b = color.b, .a = alpha };
 }
 
-// Per-ROM color override pulled from chip-8-database `colors.pixels[1]`.
-// When set (by main.zig's ROM loader), the GUI renders pixel-on cells in
-// this color instead of the palette-derived default. Still honors the
-// user's palette setting elsewhere (registers, trace, overlays) — the
-// override scope is intentionally narrow to the emulator display.
+// Per-ROM color overrides pulled from chip-8-database `colors.pixels`.
+// The display stores up to four plane-mask colors (CHIP-8 uses index 1
+// only; XO-CHIP extends to 2 and 3 for 2-plane sprites). Any null index
+// falls back to the palette-derived default so partial overrides stay
+// consistent with the user's chrome palette.
 var primary_color_override: ?rl.Color = null;
+var secondary_color_override: ?rl.Color = null;
+var blended_color_override: ?rl.Color = null;
 
 pub fn setPrimaryColorOverride(color: rl.Color) void {
     primary_color_override = color;
 }
 
+pub fn setSecondaryColorOverride(color: rl.Color) void {
+    secondary_color_override = color;
+}
+
+pub fn setBlendedColorOverride(color: rl.Color) void {
+    blended_color_override = color;
+}
+
 pub fn clearPrimaryColorOverride() void {
     primary_color_override = null;
+    secondary_color_override = null;
+    blended_color_override = null;
 }
 
 fn primaryAccent(settings: persistence.DisplaySettings) rl.Color {
@@ -688,8 +700,8 @@ fn renderDisplay(
     show_trace_focus: bool,
 ) void {
     const primary = primaryAccent(settings);
-    const secondary = blendColor(primary, FG_CYAN, 0.55);
-    const blended = blendColor(primary, secondary, 0.5);
+    const secondary = secondary_color_override orelse blendColor(primary, FG_CYAN, 0.55);
+    const blended = blended_color_override orelse blendColor(primary, secondary, 0.5);
     const logical_w = cpu.displayWidth();
     const logical_h = cpu.displayHeight();
     const cell_w = displayCellWidth(panel, cpu.display_mode);

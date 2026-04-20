@@ -811,21 +811,27 @@ fn loadRomIntoRuntime(
 // pixel-off cells aren't drawn at all, so only the foreground affects
 // rendering today.
 fn applyDisplayColorFromResolution(resolution: runtime_check.ConfigResolution) void {
-    const colors = resolution.config.colors orelse {
-        display.clearPrimaryColorOverride();
-        return;
-    };
-    const pixels = colors.pixels orelse {
-        display.clearPrimaryColorOverride();
-        return;
-    };
-    if (pixels.len >= 2) {
-        if (display.parseHexColor(pixels[1])) |c| {
-            display.setPrimaryColorOverride(c);
-            return;
-        }
-    }
+    // Clear first so partial/absent db colors don't leave stale bindings
+    // from a previous ROM.
     display.clearPrimaryColorOverride();
+
+    const colors = resolution.config.colors orelse return;
+    const pixels = colors.pixels orelse return;
+
+    // `pixels` is ordered by the plane-mask encoding:
+    //   [0] = 00 (off),   [1] = 01 (plane-1 on),
+    //   [2] = 10 (plane-2 on),  [3] = 11 (both on).
+    // CHIP-8 ROMs only need [1]; XO-CHIP can supply all four. We apply
+    // [1]..[3] since [0] (background) isn't wired through the canvas yet.
+    if (pixels.len >= 2) {
+        if (display.parseHexColor(pixels[1])) |c| display.setPrimaryColorOverride(c);
+    }
+    if (pixels.len >= 3) {
+        if (display.parseHexColor(pixels[2])) |c| display.setSecondaryColorOverride(c);
+    }
+    if (pixels.len >= 4) {
+        if (display.parseHexColor(pixels[3])) |c| display.setBlendedColorOverride(c);
+    }
 }
 
 // Push the resolution's `keys.up/down/left/right` into input.zig's
