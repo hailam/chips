@@ -206,13 +206,54 @@ fn withAlpha(color: rl.Color, alpha: u8) rl.Color {
     return .{ .r = color.r, .g = color.g, .b = color.b, .a = alpha };
 }
 
+// Per-ROM color override pulled from chip-8-database `colors.pixels[1]`.
+// When set (by main.zig's ROM loader), the GUI renders pixel-on cells in
+// this color instead of the palette-derived default. Still honors the
+// user's palette setting elsewhere (registers, trace, overlays) — the
+// override scope is intentionally narrow to the emulator display.
+var primary_color_override: ?rl.Color = null;
+
+pub fn setPrimaryColorOverride(color: rl.Color) void {
+    primary_color_override = color;
+}
+
+pub fn clearPrimaryColorOverride() void {
+    primary_color_override = null;
+}
+
 fn primaryAccent(settings: persistence.DisplaySettings) rl.Color {
+    if (primary_color_override) |c| return c;
     return switch (settings.palette) {
         .classic_green => FG_GREEN,
         .amber => FG_AMBER,
         .ice => rl.Color{ .r = 140, .g = 220, .b = 255, .a = 255 },
         .gray => rl.Color{ .r = 210, .g = 215, .b = 220, .a = 255 },
     };
+}
+
+// Parse a `#RRGGBB` hex color string into rl.Color. Returns null for
+// anything that doesn't fit the shape — callers fall back to the palette.
+pub fn parseHexColor(s: []const u8) ?rl.Color {
+    if (s.len != 7 or s[0] != '#') return null;
+    const r = std.fmt.parseInt(u8, s[1..3], 16) catch return null;
+    const g = std.fmt.parseInt(u8, s[3..5], 16) catch return null;
+    const b = std.fmt.parseInt(u8, s[5..7], 16) catch return null;
+    return .{ .r = r, .g = g, .b = b, .a = 255 };
+}
+
+test "parseHexColor handles well-formed input" {
+    const c = parseHexColor("#1a2b3c").?;
+    try std.testing.expectEqual(@as(u8, 0x1a), c.r);
+    try std.testing.expectEqual(@as(u8, 0x2b), c.g);
+    try std.testing.expectEqual(@as(u8, 0x3c), c.b);
+    try std.testing.expectEqual(@as(u8, 255), c.a);
+}
+
+test "parseHexColor rejects malformed input" {
+    try std.testing.expect(parseHexColor("") == null);
+    try std.testing.expect(parseHexColor("1a2b3c") == null);
+    try std.testing.expect(parseHexColor("#GGHHII") == null);
+    try std.testing.expect(parseHexColor("#123") == null);
 }
 
 fn accentHighlight(settings: persistence.DisplaySettings) rl.Color {

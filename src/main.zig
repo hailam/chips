@@ -749,6 +749,8 @@ fn loadRomIntoRuntime(
     // Apply per-ROM keypad mapping when the oracle supplied one. Clears
     // otherwise so the previous ROM's mapping doesn't bleed into this one.
     applyArrowOverridesFromResolution(resolution);
+    // Same treatment for the foreground pixel color.
+    applyDisplayColorFromResolution(resolution);
 
     timing_state.* = timing.TimingState.init();
     timing_state.cpu_hz_target = @floatFromInt(hz);
@@ -801,6 +803,29 @@ fn loadRomIntoRuntime(
         .sha1_hex = sha1_hex,
         .analysis = analysis,
     };
+}
+
+// Applies the resolution's `colors.pixels[1]` (foreground) to the display
+// module's primary-color override. `pixels[0]` (background) isn't wired
+// yet — our display pads the canvas with a fixed dark rectangle and
+// pixel-off cells aren't drawn at all, so only the foreground affects
+// rendering today.
+fn applyDisplayColorFromResolution(resolution: runtime_check.ConfigResolution) void {
+    const colors = resolution.config.colors orelse {
+        display.clearPrimaryColorOverride();
+        return;
+    };
+    const pixels = colors.pixels orelse {
+        display.clearPrimaryColorOverride();
+        return;
+    };
+    if (pixels.len >= 2) {
+        if (display.parseHexColor(pixels[1])) |c| {
+            display.setPrimaryColorOverride(c);
+            return;
+        }
+    }
+    display.clearPrimaryColorOverride();
 }
 
 // Push the resolution's `keys.up/down/left/right` into input.zig's
