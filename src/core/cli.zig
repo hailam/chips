@@ -62,7 +62,7 @@ pub const OverrideCommand = struct {
 };
 
 pub const VerifyCommand = union(enum) {
-    // `chip8 verify tests <test-id> [<rom-path>] [--reference=<hex>]`
+    // `chip8 verify tests <test-id> [<rom-path>] [--reference=<hex>] [--json]`
     // rom_path is optional: when omitted, the runner looks for an installed
     // copy from the Timendus test suite (installed via
     // `chip8 get timendus:<id>`).
@@ -70,16 +70,18 @@ pub const VerifyCommand = union(enum) {
         test_id: []const u8,
         rom_path: ?[]const u8 = null,
         reference_hash: ?[]const u8 = null,
+        json: bool = false,
     },
-    // `chip8 verify axis <name> [<rom-path>] [--reference=<hex>] [--start=<hex>]`
+    // `chip8 verify axis <name> [<rom-path>] [--reference=<hex>] [--start=<hex>] [--json]`
     // rom_path is optional for axes with a synthetic-only mode (memory, sound).
     axis: struct {
         axis_name: []const u8,
         rom_path: ?[]const u8 = null,
         reference_hash: ?[]const u8 = null,
         start_address: ?u16 = null,
+        json: bool = false,
     },
-    // `chip8 verify inference [--disagreements=<N>] [--threshold=<pct>] [--no-save]`
+    // `chip8 verify inference [--disagreements=<N>] [--threshold=<pct>] [--no-save] [--json]`
     // Grades inference against chip-8-database using installed ROMs as the
     // audit sample. By default, appends the result to
     // `<app_data_root>/verification/inference_history.json` and exits 1 if
@@ -89,10 +91,13 @@ pub const VerifyCommand = union(enum) {
         max_disagreements: u32 = 10,
         threshold_pct: f32 = 1.0,
         save: bool = true,
+        json: bool = false,
     },
-    // `chip8 verify all` — runs spec-invariant axes + per-ROM memory axis
-    // across every installed ROM, plus inference audit.
-    all: struct {},
+    // `chip8 verify all [--json]` — runs spec-invariant axes + per-ROM
+    // memory axis across every installed ROM, plus inference audit.
+    all: struct {
+        json: bool = false,
+    },
 };
 
 pub const RunCommand = struct {
@@ -236,14 +241,17 @@ fn parseBoolFlag(arg: []const u8, prefix: []const u8) ?bool {
 fn parseVerifyArgs(args: []const []const u8) ParseError!VerifyCommand {
     if (args.len < 1) return error.MissingOperand;
     const sub = args[0];
-    // tests <test-id> [<rom-path>] [--reference=<hex>]
+    // tests <test-id> [<rom-path>] [--reference=<hex>] [--json]
     if (std.mem.eql(u8, sub, "tests")) {
         if (args.len < 2) return error.MissingOperand;
         var rom_path: ?[]const u8 = null;
         var reference: ?[]const u8 = null;
+        var json: bool = false;
         for (args[2..]) |a| {
             if (std.mem.startsWith(u8, a, "--reference=")) {
                 reference = a["--reference=".len..];
+            } else if (std.mem.eql(u8, a, "--json")) {
+                json = true;
             } else if (std.mem.startsWith(u8, a, "-")) {
                 return error.UnexpectedArgument;
             } else {
@@ -251,13 +259,14 @@ fn parseVerifyArgs(args: []const []const u8) ParseError!VerifyCommand {
                 rom_path = a;
             }
         }
-        return .{ .tests = .{ .test_id = args[1], .rom_path = rom_path, .reference_hash = reference } };
+        return .{ .tests = .{ .test_id = args[1], .rom_path = rom_path, .reference_hash = reference, .json = json } };
     }
-    // axis <axis-name> [<rom-path>] [--reference=<hex>] [--start=<hex>]
+    // axis <axis-name> [<rom-path>] [--reference=<hex>] [--start=<hex>] [--json]
     if (std.mem.eql(u8, sub, "axis")) {
         var rom_path: ?[]const u8 = null;
         var reference: ?[]const u8 = null;
         var start_address: ?u16 = null;
+        var json: bool = false;
         for (args[2..]) |a| {
             if (std.mem.startsWith(u8, a, "--reference=")) {
                 reference = a["--reference=".len..];
@@ -265,6 +274,8 @@ fn parseVerifyArgs(args: []const []const u8) ParseError!VerifyCommand {
                 const hex = a["--start=".len..];
                 const stripped = if (std.mem.startsWith(u8, hex, "0x")) hex[2..] else hex;
                 start_address = std.fmt.parseInt(u16, stripped, 16) catch return error.InvalidCommand;
+            } else if (std.mem.eql(u8, a, "--json")) {
+                json = true;
             } else if (std.mem.startsWith(u8, a, "-")) {
                 return error.UnexpectedArgument;
             } else {
@@ -272,16 +283,22 @@ fn parseVerifyArgs(args: []const []const u8) ParseError!VerifyCommand {
                 rom_path = a;
             }
         }
-        return .{ .axis = .{ .axis_name = args[1], .rom_path = rom_path, .reference_hash = reference, .start_address = start_address } };
+        return .{ .axis = .{ .axis_name = args[1], .rom_path = rom_path, .reference_hash = reference, .start_address = start_address, .json = json } };
     }
     if (std.mem.eql(u8, sub, "all")) {
-        if (args.len > 1) return error.UnexpectedArgument;
-        return .{ .all = .{} };
+        var json: bool = false;
+        for (args[1..]) |a| {
+            if (std.mem.eql(u8, a, "--json")) {
+                json = true;
+            } else return error.UnexpectedArgument;
+        }
+        return .{ .all = .{ .json = json } };
     }
     if (std.mem.eql(u8, sub, "inference")) {
         var max_disagreements: u32 = 10;
         var threshold_pct: f32 = 1.0;
         var save: bool = true;
+        var json: bool = false;
         for (args[1..]) |a| {
             if (std.mem.startsWith(u8, a, "--disagreements=")) {
                 const v = a["--disagreements=".len..];
@@ -291,12 +308,15 @@ fn parseVerifyArgs(args: []const []const u8) ParseError!VerifyCommand {
                 threshold_pct = std.fmt.parseFloat(f32, v) catch return error.InvalidCommand;
             } else if (std.mem.eql(u8, a, "--no-save")) {
                 save = false;
+            } else if (std.mem.eql(u8, a, "--json")) {
+                json = true;
             } else return error.UnexpectedArgument;
         }
         return .{ .inference = .{
             .max_disagreements = max_disagreements,
             .threshold_pct = threshold_pct,
             .save = save,
+            .json = json,
         } };
     }
     return error.InvalidCommand;

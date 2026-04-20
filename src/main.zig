@@ -1117,10 +1117,14 @@ fn runListCommand(init: std.process.Init) !void {
     std.debug.print("Installed ROMs  (run with: chip8 <launch-id>)\n", .{});
     for (installed) |rom| {
         const title = if (rom.metadata.chip8_db_entry) |e| e.title else rom.metadata.file;
+        // "*" marks ROMs with a user-set config_override. Keeps the list
+        // compact while making override-state discoverable (`chip8 override
+        // <id> --show` prints the details).
+        const mark: []const u8 = if (rom.config_override != null) " *" else "";
         if (registry.installedRegistryName(rom)) |ns| {
-            std.debug.print("  {s}:{s}  ({s})\n", .{ ns, rom.metadata.id, title });
+            std.debug.print("  {s}:{s}{s}  ({s})\n", .{ ns, rom.metadata.id, mark, title });
         } else {
-            std.debug.print("  {s}  ({s})\n", .{ rom.metadata.id, title });
+            std.debug.print("  {s}{s}  ({s})\n", .{ rom.metadata.id, mark, title });
         }
     }
 }
@@ -1303,14 +1307,14 @@ fn runValidateCommand(init: std.process.Init, path: ?[]const u8) !void {
 
 fn runVerifyCommand(init: std.process.Init, cmd: cli.VerifyCommand) !void {
     switch (cmd) {
-        .tests => |t| try runVerifyTest(init, t.test_id, t.rom_path, t.reference_hash),
+        .tests => |t| try runVerifyTest(init, t.test_id, t.rom_path, t.reference_hash, t.json),
         .axis => |a| try runVerifyAxis(init, a),
-        .inference => |i| try runVerifyInference(init, i.max_disagreements, i.threshold_pct, i.save),
-        .all => try runVerifyAll(init),
+        .inference => |i| try runVerifyInference(init, i.max_disagreements, i.threshold_pct, i.save, i.json),
+        .all => |a| try runVerifyAll(init, a.json),
     }
 }
 
-fn runVerifyAll(init: std.process.Init) !void {
+fn runVerifyAll(init: std.process.Init, json: bool) !void {
     const app_data_root = try persistence.defaultAppDataRootAlloc(init.gpa, init.minimal.environ);
     defer init.gpa.free(app_data_root);
 
@@ -1334,14 +1338,18 @@ fn runVerifyAll(init: std.process.Init) !void {
     var buf: [16 * 1024]u8 = undefined;
     var stdout_writer = std.Io.File.stdout().writer(init.io, &buf);
     const w = &stdout_writer.interface;
-    try verify_report.formatHuman(report, w);
+    if (json) {
+        try verify_report.formatJson(init.gpa, report, w);
+    } else {
+        try verify_report.formatHuman(report, w);
+    }
     try w.flush();
 
     const s = report.summary();
     if (s.fail > 0 or s.err > 0) std.process.exit(1);
 }
 
-fn runVerifyTest(init: std.process.Init, test_id_str: []const u8, rom_path_opt: ?[]const u8, reference: ?[]const u8) !void {
+fn runVerifyTest(init: std.process.Init, test_id_str: []const u8, rom_path_opt: ?[]const u8, reference: ?[]const u8, json: bool) !void {
     const test_id = verify_test_suite.TestId.fromString(test_id_str) orelse {
         std.debug.print("Unknown test id: {s}  (known: 1-chip8-logo, 2-ibm-logo, 3-corax+, 4-flags, 5-quirks, 7-beep, 8-scrolling)\n", .{test_id_str});
         std.process.exit(2);
@@ -1380,7 +1388,7 @@ fn runVerifyTest(init: std.process.Init, test_id_str: []const u8, rom_path_opt: 
     });
     defer rep.deinit(init.gpa);
 
-    try emitAxisReport(init, rep);
+    try emitAxisReportOut(init, rep, json);
     if (rep.verdict == .fail or rep.verdict == .harness_error) std.process.exit(1);
 }
 
@@ -1426,7 +1434,7 @@ fn runVerifyAxis(init: std.process.Init, a: anytype) !void {
             .reference_hash = a.reference_hash,
         });
         defer rep.deinit(init.gpa);
-        try emitAxisReport(init, rep);
+        try emitAxisReportOut(init, rep, a.json);
         if (rep.verdict == .fail or rep.verdict == .harness_error) std.process.exit(1);
         return;
     }
@@ -1436,7 +1444,7 @@ fn runVerifyAxis(init: std.process.Init, a: anytype) !void {
         // the startAddress-honor check.
         const rep_synth = try axis_memory.runSyntheticInvariants(init.gpa);
         defer rep_synth.deinit(init.gpa);
-        try emitAxisReport(init, rep_synth);
+        try emitAxisReportOut(init, rep_synth, a.json);
 
         if (a.rom_path) |rom_path| {
             const rom_bytes = try std.Io.Dir.cwd().readFileAlloc(init.io, rom_path, init.gpa, .limited(cpu_mod.CHIP8_MEMORY_SIZE));
@@ -1446,7 +1454,7 @@ fn runVerifyAxis(init: std.process.Init, a: anytype) !void {
                 .start_address = a.start_address orelse 0x200,
             });
             defer rep_rom.deinit(init.gpa);
-            try emitAxisReport(init, rep_rom);
+            try emitAxisReportOut(init, rep_rom, a.json);
             if (rep_synth.verdict == .fail or rep_rom.verdict == .fail) std.process.exit(1);
         } else if (rep_synth.verdict == .fail) {
             std.process.exit(1);
@@ -1457,7 +1465,7 @@ fn runVerifyAxis(init: std.process.Init, a: anytype) !void {
     if (std.mem.eql(u8, a.axis_name, "sound")) {
         const rep = try axis_sound.runSyntheticInvariants(init.gpa);
         defer rep.deinit(init.gpa);
-        try emitAxisReport(init, rep);
+        try emitAxisReportOut(init, rep, a.json);
         if (rep.verdict == .fail) std.process.exit(1);
         return;
     }
@@ -1492,7 +1500,7 @@ fn runVerifyAxis(init: std.process.Init, a: anytype) !void {
         }
         var any_failed = false;
         for (reports) |r| {
-            try emitAxisReport(init, r);
+            try emitAxisReportOut(init, r, a.json);
             if (r.verdict == .fail or r.verdict == .harness_error) any_failed = true;
         }
         if (any_failed) std.process.exit(1);
@@ -1514,7 +1522,7 @@ fn readInstalledBytes(raw_ctx: *anyopaque, rom: models.InstalledRom) anyerror!?[
     return bytes;
 }
 
-fn runVerifyInference(init: std.process.Init, max_disagreements: u32, threshold_pct: f32, save: bool) !void {
+fn runVerifyInference(init: std.process.Init, max_disagreements: u32, threshold_pct: f32, save: bool, json: bool) !void {
     const app_data_root = try persistence.defaultAppDataRootAlloc(init.gpa, init.minimal.environ);
     defer init.gpa.free(app_data_root);
 
@@ -1541,63 +1549,66 @@ fn runVerifyInference(init: std.process.Init, max_disagreements: u32, threshold_
     );
     defer report.deinit(init.gpa);
 
-    var buf: [8192]u8 = undefined;
+    var buf: [16 * 1024]u8 = undefined;
     var stdout_writer = std.Io.File.stdout().writer(init.io, &buf);
     const w = &stdout_writer.interface;
-    if (report.total_roms_graded == 0) {
-        try w.print("No installed ROMs had chip-8-database matches to grade against. Install some ROMs first.\n", .{});
-        try w.flush();
-        return;
-    }
 
-    try w.print("Inference audit across {d} installed ROMs with db-cache hits\n", .{report.total_roms_graded});
-    try w.print("  platform accuracy: {d:.2}%  (exact={d}, acceptable={d}, wrong={d})\n", .{
-        report.platformAccuracy() * 100.0,
-        report.exact_match,
-        report.acceptable,
-        report.wrong,
-    });
-    try w.print("  quirk accuracy (mapped subset): {d:.2}%\n", .{report.overallQuirkAccuracy() * 100.0});
-    for (report.per_quirk) |q| {
-        try w.print("    {s:<10} {d:.2}%  (tp={d} tn={d} fp={d} fn={d})\n", .{
-            q.quirk,
-            q.matrix.accuracy() * 100.0,
-            q.matrix.true_positive,
-            q.matrix.true_negative,
-            q.matrix.false_positive,
-            q.matrix.false_negative,
-        });
-    }
-    if (report.platform_disagreements.len > 0) {
-        const shown = @min(report.platform_disagreements.len, max_disagreements);
-        try w.print("  disagreements (showing {d}/{d}):\n", .{ shown, report.platform_disagreements.len });
-        for (report.platform_disagreements[0..shown]) |d| {
-            try w.print("    sha1={s}  expected={s}  inferred={s}  reason={s}\n", .{
-                d.sha1,
-                d.expected_platform,
-                d.inferred_platform,
-                d.reasoning,
-            });
-        }
-    }
-
-    // Regression check against the most-recent recorded run.
+    // Regression check (needed by both text + JSON paths).
     const history = try inference_audit.loadHistory(init.io, init.gpa, app_data_root);
     defer inference_audit.freeHistory(init.gpa, history);
     const check = inference_audit.checkRegression(history, report, threshold_pct);
 
-    switch (check.verdict) {
-        .no_baseline => try w.print("  (no prior run recorded; establishing baseline)\n", .{}),
-        .ok => {
-            const plat_delta = (check.current_platform - check.baseline_platform) * 100.0;
-            const quirk_delta = (check.current_quirk - check.baseline_quirk) * 100.0;
-            try w.print("  vs last run: platform {s}{d:.2}%, quirks {s}{d:.2}%  (threshold {d:.1}%)\n", .{ signStr(plat_delta), @abs(plat_delta), signStr(quirk_delta), @abs(quirk_delta), threshold_pct });
-        },
-        .regressed => {
-            const plat_delta = (check.current_platform - check.baseline_platform) * 100.0;
-            const quirk_delta = (check.current_quirk - check.baseline_quirk) * 100.0;
-            try w.print("  REGRESSION: platform {s}{d:.2}%, quirks {s}{d:.2}%  (threshold {d:.1}%)\n", .{ signStr(plat_delta), @abs(plat_delta), signStr(quirk_delta), @abs(quirk_delta), threshold_pct });
-        },
+    if (json) {
+        try emitInferenceJson(init.gpa, w, report, check, threshold_pct, max_disagreements);
+    } else {
+        if (report.total_roms_graded == 0) {
+            try w.print("No installed ROMs had chip-8-database matches to grade against. Install some ROMs first.\n", .{});
+        } else {
+            try w.print("Inference audit across {d} installed ROMs with db-cache hits\n", .{report.total_roms_graded});
+            try w.print("  platform accuracy: {d:.2}%  (exact={d}, acceptable={d}, wrong={d})\n", .{
+                report.platformAccuracy() * 100.0,
+                report.exact_match,
+                report.acceptable,
+                report.wrong,
+            });
+            try w.print("  quirk accuracy (mapped subset): {d:.2}%\n", .{report.overallQuirkAccuracy() * 100.0});
+            for (report.per_quirk) |q| {
+                try w.print("    {s:<10} {d:.2}%  (tp={d} tn={d} fp={d} fn={d})\n", .{
+                    q.quirk,
+                    q.matrix.accuracy() * 100.0,
+                    q.matrix.true_positive,
+                    q.matrix.true_negative,
+                    q.matrix.false_positive,
+                    q.matrix.false_negative,
+                });
+            }
+            if (report.platform_disagreements.len > 0) {
+                const shown = @min(report.platform_disagreements.len, max_disagreements);
+                try w.print("  disagreements (showing {d}/{d}):\n", .{ shown, report.platform_disagreements.len });
+                for (report.platform_disagreements[0..shown]) |d| {
+                    try w.print("    sha1={s}  expected={s}  inferred={s}  reason={s}\n", .{
+                        d.sha1,
+                        d.expected_platform,
+                        d.inferred_platform,
+                        d.reasoning,
+                    });
+                }
+            }
+
+            switch (check.verdict) {
+                .no_baseline => try w.print("  (no prior run recorded; establishing baseline)\n", .{}),
+                .ok => {
+                    const plat_delta = (check.current_platform - check.baseline_platform) * 100.0;
+                    const quirk_delta = (check.current_quirk - check.baseline_quirk) * 100.0;
+                    try w.print("  vs last run: platform {s}{d:.2}%, quirks {s}{d:.2}%  (threshold {d:.1}%)\n", .{ signStr(plat_delta), @abs(plat_delta), signStr(quirk_delta), @abs(quirk_delta), threshold_pct });
+                },
+                .regressed => {
+                    const plat_delta = (check.current_platform - check.baseline_platform) * 100.0;
+                    const quirk_delta = (check.current_quirk - check.baseline_quirk) * 100.0;
+                    try w.print("  REGRESSION: platform {s}{d:.2}%, quirks {s}{d:.2}%  (threshold {d:.1}%)\n", .{ signStr(plat_delta), @abs(plat_delta), signStr(quirk_delta), @abs(quirk_delta), threshold_pct });
+                },
+            }
+        }
     }
 
     if (save) {
@@ -1758,12 +1769,125 @@ fn signStr(v: f32) []const u8 {
     return if (v >= 0) "+" else "-";
 }
 
+fn emitInferenceJson(
+    allocator: std.mem.Allocator,
+    w: *std.Io.Writer,
+    report: inference_audit.Report,
+    check: inference_audit.RegressionCheck,
+    threshold_pct: f32,
+    max_disagreements: u32,
+) !void {
+    const PerQuirk = struct {
+        name: []const u8,
+        accuracy_pct: f32,
+        tp: u32,
+        tn: u32,
+        fp: u32,
+        fn_: u32,
+    };
+    const Disagree = struct {
+        sha1: []const u8,
+        expected_platform: []const u8,
+        inferred_platform: []const u8,
+        reasoning: []const u8,
+    };
+    const Regression = struct {
+        verdict: []const u8,
+        baseline_platform_pct: f32,
+        current_platform_pct: f32,
+        baseline_quirk_pct: f32,
+        current_quirk_pct: f32,
+        worst_drop_pct: f32,
+        threshold_pct: f32,
+    };
+    const View = struct {
+        total_roms_graded: u32,
+        platform: struct {
+            accuracy_pct: f32,
+            exact: u32,
+            acceptable: u32,
+            wrong: u32,
+        },
+        quirk: struct {
+            overall_accuracy_pct: f32,
+            per_quirk: []const PerQuirk,
+        },
+        disagreements: []const Disagree,
+        regression: Regression,
+    };
+
+    const per_quirk = try allocator.alloc(PerQuirk, report.per_quirk.len);
+    defer allocator.free(per_quirk);
+    for (report.per_quirk, 0..) |q, i| {
+        per_quirk[i] = .{
+            .name = q.quirk,
+            .accuracy_pct = q.matrix.accuracy() * 100.0,
+            .tp = q.matrix.true_positive,
+            .tn = q.matrix.true_negative,
+            .fp = q.matrix.false_positive,
+            .fn_ = q.matrix.false_negative,
+        };
+    }
+
+    const shown = @min(report.platform_disagreements.len, max_disagreements);
+    const disagreements = try allocator.alloc(Disagree, shown);
+    defer allocator.free(disagreements);
+    for (report.platform_disagreements[0..shown], 0..) |d, i| {
+        disagreements[i] = .{
+            .sha1 = d.sha1,
+            .expected_platform = d.expected_platform,
+            .inferred_platform = d.inferred_platform,
+            .reasoning = d.reasoning,
+        };
+    }
+
+    const verdict_str: []const u8 = switch (check.verdict) {
+        .ok => "ok",
+        .regressed => "regressed",
+        .no_baseline => "no_baseline",
+    };
+
+    const view = View{
+        .total_roms_graded = report.total_roms_graded,
+        .platform = .{
+            .accuracy_pct = report.platformAccuracy() * 100.0,
+            .exact = report.exact_match,
+            .acceptable = report.acceptable,
+            .wrong = report.wrong,
+        },
+        .quirk = .{
+            .overall_accuracy_pct = report.overallQuirkAccuracy() * 100.0,
+            .per_quirk = per_quirk,
+        },
+        .disagreements = disagreements,
+        .regression = .{
+            .verdict = verdict_str,
+            .baseline_platform_pct = check.baseline_platform * 100.0,
+            .current_platform_pct = check.current_platform * 100.0,
+            .baseline_quirk_pct = check.baseline_quirk * 100.0,
+            .current_quirk_pct = check.current_quirk * 100.0,
+            .worst_drop_pct = check.worst_drop_pct,
+            .threshold_pct = threshold_pct,
+        },
+    };
+    try std.json.Stringify.value(view, .{ .whitespace = .indent_2 }, w);
+    try w.print("\n", .{});
+}
+
 fn emitAxisReport(init: std.process.Init, rep: verify_report.AxisReport) !void {
-    var buf: [4096]u8 = undefined;
+    try emitAxisReportOut(init, rep, false);
+}
+
+fn emitAxisReportOut(init: std.process.Init, rep: verify_report.AxisReport, json: bool) !void {
+    var buf: [8192]u8 = undefined;
     var stdout_writer = std.Io.File.stdout().writer(init.io, &buf);
     const w = &stdout_writer.interface;
-    try w.print("[{s}] {s} :: {s}  {s}\n", .{ rep.verdict.asString(), rep.axis_name, rep.rom_id, rep.details });
-    for (rep.diagnostics) |d| try w.print("  - {s}: {s}\n", .{ d.kind, d.message });
+    if (json) {
+        try verify_report.formatAxisJson(init.gpa, rep, w);
+    } else {
+        try w.print("[{s}] {s} :: {s}  {s}\n", .{ rep.verdict.asString(), rep.axis_name, rep.rom_id, rep.details });
+        for (rep.diagnostics) |d| try w.print("  - {s}: {s}\n", .{ d.kind, d.message });
+    }
     try w.flush();
 }
 

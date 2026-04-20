@@ -94,3 +94,42 @@ pub fn formatHuman(report: VerificationReport, writer: anytype) !void {
         for (a.diagnostics) |d| try writer.print("      - {s}: {s}\n", .{ d.kind, d.message });
     }
 }
+
+// Machine-readable formatter for CI pipelines. Stable schema: axis reports
+// are emitted even when diagnostics are empty, so downstream filters don't
+// need to special-case shape differences.
+pub fn formatJson(allocator: std.mem.Allocator, report: VerificationReport, writer: anytype) !void {
+    const AxisJsonView = struct {
+        verdict: []const u8,
+        axis: []const u8,
+        rom_id: []const u8,
+        details: []const u8,
+        diagnostics: []const Diagnostic,
+    };
+    const View = struct {
+        summary: VerificationReport.Summary,
+        axes: []const AxisJsonView,
+    };
+
+    var axes_view = try allocator.alloc(AxisJsonView, report.axes.len);
+    defer allocator.free(axes_view);
+    for (report.axes, 0..) |a, i| {
+        axes_view[i] = .{
+            .verdict = a.verdict.asString(),
+            .axis = a.axis_name,
+            .rom_id = a.rom_id,
+            .details = a.details,
+            .diagnostics = a.diagnostics,
+        };
+    }
+    const view = View{ .summary = report.summary(), .axes = axes_view };
+    try std.json.Stringify.value(view, .{ .whitespace = .indent_2 }, writer);
+    try writer.print("\n", .{});
+}
+
+// Convenience for single-axis commands (`verify tests`, `verify axis`).
+pub fn formatAxisJson(allocator: std.mem.Allocator, rep: AxisReport, writer: anytype) !void {
+    var axes: [1]AxisReport = .{rep};
+    const fake = VerificationReport{ .axes = axes[0..] };
+    try formatJson(allocator, fake, writer);
+}
