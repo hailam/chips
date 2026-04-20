@@ -95,6 +95,7 @@ fn runCommand(init: std.process.Init, command: cli.Command) !void {
         .init_manifest => |cmd| try runInitCommand(init, cmd.path),
         .validate_manifest => |cmd| try runValidateCommand(init, cmd.path),
         .verify => |cmd| try runVerifyCommand(init, cmd),
+        .override_config => |cmd| try runOverrideCommand(init, cmd),
         .help => try runHelpCommand(init),
     }
 }
@@ -1303,7 +1304,7 @@ fn runVerifyCommand(init: std.process.Init, cmd: cli.VerifyCommand) !void {
     switch (cmd) {
         .tests => |t| try runVerifyTest(init, t.test_id, t.rom_path, t.reference_hash),
         .axis => |a| try runVerifyAxis(init, a),
-        .inference => |i| try runVerifyInference(init, i.max_disagreements),
+        .inference => |i| try runVerifyInference(init, i.max_disagreements, i.threshold_pct, i.save),
         .all => try runVerifyAll(init),
     }
 }
@@ -1475,7 +1476,7 @@ fn readInstalledBytes(raw_ctx: *anyopaque, rom: models.InstalledRom) anyerror!?[
     return bytes;
 }
 
-fn runVerifyInference(init: std.process.Init, max_disagreements: u32) !void {
+fn runVerifyInference(init: std.process.Init, max_disagreements: u32, threshold_pct: f32, save: bool) !void {
     const app_data_root = try persistence.defaultAppDataRootAlloc(init.gpa, init.minimal.environ);
     defer init.gpa.free(app_data_root);
 
@@ -1541,7 +1542,182 @@ fn runVerifyInference(init: std.process.Init, max_disagreements: u32) !void {
             });
         }
     }
+
+    // Regression check against the most-recent recorded run.
+    const history = try inference_audit.loadHistory(init.io, init.gpa, app_data_root);
+    defer inference_audit.freeHistory(init.gpa, history);
+    const check = inference_audit.checkRegression(history, report, threshold_pct);
+
+    switch (check.verdict) {
+        .no_baseline => try w.print("  (no prior run recorded; establishing baseline)\n", .{}),
+        .ok => {
+            const plat_delta = (check.current_platform - check.baseline_platform) * 100.0;
+            const quirk_delta = (check.current_quirk - check.baseline_quirk) * 100.0;
+            try w.print("  vs last run: platform {s}{d:.2}%, quirks {s}{d:.2}%  (threshold {d:.1}%)\n", .{ signStr(plat_delta), @abs(plat_delta), signStr(quirk_delta), @abs(quirk_delta), threshold_pct });
+        },
+        .regressed => {
+            const plat_delta = (check.current_platform - check.baseline_platform) * 100.0;
+            const quirk_delta = (check.current_quirk - check.baseline_quirk) * 100.0;
+            try w.print("  REGRESSION: platform {s}{d:.2}%, quirks {s}{d:.2}%  (threshold {d:.1}%)\n", .{ signStr(plat_delta), @abs(plat_delta), signStr(quirk_delta), @abs(quirk_delta), threshold_pct });
+        },
+    }
+
+    if (save) {
+        const now_ms = std.Io.Clock.now(.real, init.io).toMilliseconds();
+        try inference_audit.appendToHistory(init.io, init.gpa, app_data_root, report, now_ms);
+    }
+
     try w.flush();
+
+    if (check.verdict == .regressed) std.process.exit(1);
+}
+
+fn runOverrideCommand(init: std.process.Init, cmd: cli.OverrideCommand) !void {
+    const app_data_root = try persistence.defaultAppDataRootAlloc(init.gpa, init.minimal.environ);
+    defer init.gpa.free(app_data_root);
+
+    const installed = try registry.listInstalled(init.io, init.gpa, app_data_root);
+    defer {
+        for (installed) |r| r.deinit(init.gpa);
+        init.gpa.free(installed);
+    }
+
+    // Same match rules as `chip8 remove` / `update`: bare id → single match
+    // required, `<registry>:<id>` → scoped, AmbiguousQuery otherwise.
+    const requested = registry.parseQualifiedId(cmd.rom_id);
+    var match: ?models.InstalledRom = null;
+    var multiple = false;
+    for (installed) |rom| {
+        if (!std.mem.eql(u8, rom.metadata.id, requested.id)) continue;
+        if (requested.registry) |want| {
+            const ns = registry.installedRegistryName(rom) orelse continue;
+            if (!std.mem.eql(u8, ns, want)) continue;
+        }
+        if (match != null) {
+            multiple = true;
+            break;
+        }
+        match = rom;
+    }
+    if (multiple) {
+        std.debug.print("Ambiguous id '{s}' — multiple installed ROMs match. Qualify with <registry>:<id>.\n", .{cmd.rom_id});
+        std.process.exit(2);
+    }
+    const target = match orelse {
+        std.debug.print("No installed ROM with id '{s}'. Run `chip8 list`.\n", .{cmd.rom_id});
+        std.process.exit(2);
+    };
+
+    // --show reads without mutating.
+    if (cmd.mode == .show) {
+        try printOverride(init, target);
+        return;
+    }
+
+    // Sidecar path: installed_roms/<...>/<id>.json (where … is the optional
+    // registry namespace). The rom's local.path is `.../<id>.ch8`, so strip
+    // the `.ch8` suffix and append `.json`.
+    const rom_path = target.local.path;
+    if (!std.mem.endsWith(u8, rom_path, ".ch8")) {
+        std.debug.print("Unexpected rom path (not .ch8): {s}\n", .{rom_path});
+        std.process.exit(2);
+    }
+    const sidecar_path = try std.fmt.allocPrint(init.gpa, "{s}.json", .{rom_path[0 .. rom_path.len - 4]});
+    defer init.gpa.free(sidecar_path);
+
+    // Build the next override: start from the current one (if any) and
+    // overlay non-null fields from `cmd`. --clear drops it entirely.
+    const next_override: ?models.RomConfigOverride = blk: {
+        if (cmd.mode == .clear) break :blk null;
+        break :blk try mergeOverride(init.gpa, target.config_override, cmd);
+    };
+    errdefer if (next_override) |o| o.deinit(init.gpa);
+
+    // Rewrite the sidecar. We clone the rest of InstalledRom so ownership
+    // stays clean; writing the existing `target` struct works too but is
+    // more error-prone w.r.t. the `config_override` replacement.
+    var updated = try target.clone(init.gpa);
+    defer updated.deinit(init.gpa);
+    if (updated.config_override) |o| o.deinit(init.gpa);
+    updated.config_override = next_override;
+
+    var writer: std.Io.Writer.Allocating = .init(init.gpa);
+    defer writer.deinit();
+    try std.json.Stringify.value(updated, .{ .whitespace = .indent_2 }, &writer.writer);
+    try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = sidecar_path, .data = writer.written() });
+
+    if (cmd.mode == .clear) {
+        std.debug.print("Cleared override for {s}.\n", .{cmd.rom_id});
+    } else {
+        std.debug.print("Override updated for {s}.\n", .{cmd.rom_id});
+        try printOverride(init, updated);
+    }
+}
+
+fn mergeOverride(
+    allocator: std.mem.Allocator,
+    existing: ?models.RomConfigOverride,
+    cmd: cli.OverrideCommand,
+) !models.RomConfigOverride {
+    // Start from a clone of the existing override (or an empty one).
+    var out: models.RomConfigOverride = if (existing) |e|
+        try e.clone(allocator)
+    else
+        .{};
+    errdefer out.deinit(allocator);
+
+    if (cmd.platform) |p| {
+        if (out.platform) |old| allocator.free(old);
+        out.platform = try allocator.dupe(u8, p);
+    }
+    if (cmd.font_style) |f| {
+        if (out.font_style) |old| allocator.free(old);
+        out.font_style = try allocator.dupe(u8, f);
+    }
+    if (cmd.tickrate) |v| out.tickrate = v;
+    if (cmd.start_address) |v| out.start_address = v;
+    if (cmd.screen_rotation) |v| out.screen_rotation = v;
+
+    // Quirks: merge field-by-field so the user can tweak one without losing
+    // previous overrides.
+    var q = out.quirks orelse models.QuirkSet{};
+    if (cmd.shift) |v| q.shift = v;
+    if (cmd.wrap) |v| q.wrap = v;
+    if (cmd.jump) |v| q.jump = v;
+    if (cmd.logic) |v| q.logic = v;
+    if (cmd.memoryIncrementByX) |v| q.memoryIncrementByX = v;
+    if (cmd.memoryLeaveIUnchanged) |v| q.memoryLeaveIUnchanged = v;
+    if (cmd.vblank) |v| q.vblank = v;
+    out.quirks = q;
+
+    return out;
+}
+
+fn printOverride(init: std.process.Init, rom: models.InstalledRom) !void {
+    _ = init;
+    const o = rom.config_override orelse {
+        std.debug.print("No override set for {s}.\n", .{rom.metadata.id});
+        return;
+    };
+    std.debug.print("Override for {s}:\n", .{rom.metadata.id});
+    if (o.platform) |v| std.debug.print("  platform = {s}\n", .{v});
+    if (o.tickrate) |v| std.debug.print("  tickrate = {d}\n", .{v});
+    if (o.start_address) |v| std.debug.print("  start_address = 0x{X:0>3}\n", .{v});
+    if (o.screen_rotation) |v| std.debug.print("  screen_rotation = {d}\n", .{v});
+    if (o.font_style) |v| std.debug.print("  font_style = {s}\n", .{v});
+    if (o.quirks) |q| {
+        if (q.shift) |v| std.debug.print("  quirks.shift = {s}\n", .{if (v) "on" else "off"});
+        if (q.wrap) |v| std.debug.print("  quirks.wrap = {s}\n", .{if (v) "on" else "off"});
+        if (q.jump) |v| std.debug.print("  quirks.jump = {s}\n", .{if (v) "on" else "off"});
+        if (q.logic) |v| std.debug.print("  quirks.logic = {s}\n", .{if (v) "on" else "off"});
+        if (q.memoryIncrementByX) |v| std.debug.print("  quirks.memoryIncrementByX = {s}\n", .{if (v) "on" else "off"});
+        if (q.memoryLeaveIUnchanged) |v| std.debug.print("  quirks.memoryLeaveIUnchanged = {s}\n", .{if (v) "on" else "off"});
+        if (q.vblank) |v| std.debug.print("  quirks.vblank = {s}\n", .{if (v) "on" else "off"});
+    }
+}
+
+fn signStr(v: f32) []const u8 {
+    return if (v >= 0) "+" else "-";
 }
 
 fn emitAxisReport(init: std.process.Init, rep: verify_report.AxisReport) !void {

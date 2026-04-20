@@ -34,7 +34,31 @@ pub const Command = union(enum) {
         path: ?[]const u8,
     },
     verify: VerifyCommand,
+    // `chip8 override <rom-id> [flags...]` — merges flags into the
+    // installed ROM's sidecar config_override. Use `--clear` to drop
+    // the override entirely. `--show` prints the current one without
+    // mutating.
+    override_config: OverrideCommand,
     help: struct {},
+};
+
+pub const OverrideCommand = struct {
+    rom_id: []const u8,
+    mode: Mode = .set,
+    platform: ?[]const u8 = null,
+    shift: ?bool = null,
+    wrap: ?bool = null,
+    jump: ?bool = null,
+    logic: ?bool = null,
+    memoryIncrementByX: ?bool = null,
+    memoryLeaveIUnchanged: ?bool = null,
+    vblank: ?bool = null,
+    tickrate: ?u32 = null,
+    start_address: ?u16 = null,
+    screen_rotation: ?u16 = null,
+    font_style: ?[]const u8 = null,
+
+    pub const Mode = enum { set, clear, show };
 };
 
 pub const VerifyCommand = union(enum) {
@@ -55,10 +79,16 @@ pub const VerifyCommand = union(enum) {
         reference_hash: ?[]const u8 = null,
         start_address: ?u16 = null,
     },
-    // `chip8 verify inference [--disagreements=<N>]` — grades inference
-    // against chip-8-database using installed ROMs as the audit sample.
+    // `chip8 verify inference [--disagreements=<N>] [--threshold=<pct>] [--no-save]`
+    // Grades inference against chip-8-database using installed ROMs as the
+    // audit sample. By default, appends the result to
+    // `<app_data_root>/verification/inference_history.json` and exits 1 if
+    // either platform or quirk accuracy dropped more than `threshold` pct
+    // vs the last recorded run.
     inference: struct {
         max_disagreements: u32 = 10,
+        threshold_pct: f32 = 1.0,
+        save: bool = true,
     },
     // `chip8 verify all` — runs spec-invariant axes + per-ROM memory axis
     // across every installed ROM, plus inference audit.
@@ -147,8 +177,60 @@ pub fn parseArgs(args: []const []const u8) ParseError!Command {
         if (args.len < 2) return error.MissingOperand;
         return .{ .verify = try parseVerifyArgs(args[1..]) };
     }
+    if (std.mem.eql(u8, args[0], "override")) {
+        if (args.len < 2) return error.MissingOperand;
+        return .{ .override_config = try parseOverrideArgs(args[1..]) };
+    }
 
     return .{ .run = try parseRunArgs(args) };
+}
+
+fn parseOverrideArgs(args: []const []const u8) ParseError!OverrideCommand {
+    var cmd: OverrideCommand = .{ .rom_id = args[0] };
+    for (args[1..]) |a| {
+        if (std.mem.eql(u8, a, "--clear")) {
+            cmd.mode = .clear;
+        } else if (std.mem.eql(u8, a, "--show")) {
+            cmd.mode = .show;
+        } else if (std.mem.startsWith(u8, a, "--platform=")) {
+            cmd.platform = a["--platform=".len..];
+        } else if (std.mem.startsWith(u8, a, "--font=")) {
+            cmd.font_style = a["--font=".len..];
+        } else if (std.mem.startsWith(u8, a, "--tickrate=")) {
+            cmd.tickrate = std.fmt.parseInt(u32, a["--tickrate=".len..], 10) catch return error.InvalidCommand;
+        } else if (std.mem.startsWith(u8, a, "--start=")) {
+            const v = a["--start=".len..];
+            const stripped = if (std.mem.startsWith(u8, v, "0x")) v[2..] else v;
+            cmd.start_address = std.fmt.parseInt(u16, stripped, 16) catch return error.InvalidCommand;
+        } else if (std.mem.startsWith(u8, a, "--rotation=")) {
+            cmd.screen_rotation = std.fmt.parseInt(u16, a["--rotation=".len..], 10) catch return error.InvalidCommand;
+        } else if (parseBoolFlag(a, "--shift=")) |v| {
+            cmd.shift = v;
+        } else if (parseBoolFlag(a, "--wrap=")) |v| {
+            cmd.wrap = v;
+        } else if (parseBoolFlag(a, "--jump=")) |v| {
+            cmd.jump = v;
+        } else if (parseBoolFlag(a, "--logic=")) |v| {
+            cmd.logic = v;
+        } else if (parseBoolFlag(a, "--memIncX=")) |v| {
+            cmd.memoryIncrementByX = v;
+        } else if (parseBoolFlag(a, "--memLeaveI=")) |v| {
+            cmd.memoryLeaveIUnchanged = v;
+        } else if (parseBoolFlag(a, "--vblank=")) |v| {
+            cmd.vblank = v;
+        } else {
+            return error.UnexpectedArgument;
+        }
+    }
+    return cmd;
+}
+
+fn parseBoolFlag(arg: []const u8, prefix: []const u8) ?bool {
+    if (!std.mem.startsWith(u8, arg, prefix)) return null;
+    const v = arg[prefix.len..];
+    if (std.mem.eql(u8, v, "on") or std.mem.eql(u8, v, "true") or std.mem.eql(u8, v, "1")) return true;
+    if (std.mem.eql(u8, v, "off") or std.mem.eql(u8, v, "false") or std.mem.eql(u8, v, "0")) return false;
+    return null;
 }
 
 fn parseVerifyArgs(args: []const []const u8) ParseError!VerifyCommand {
@@ -198,13 +280,24 @@ fn parseVerifyArgs(args: []const []const u8) ParseError!VerifyCommand {
     }
     if (std.mem.eql(u8, sub, "inference")) {
         var max_disagreements: u32 = 10;
+        var threshold_pct: f32 = 1.0;
+        var save: bool = true;
         for (args[1..]) |a| {
             if (std.mem.startsWith(u8, a, "--disagreements=")) {
                 const v = a["--disagreements=".len..];
                 max_disagreements = std.fmt.parseInt(u32, v, 10) catch return error.InvalidCommand;
+            } else if (std.mem.startsWith(u8, a, "--threshold=")) {
+                const v = a["--threshold=".len..];
+                threshold_pct = std.fmt.parseFloat(f32, v) catch return error.InvalidCommand;
+            } else if (std.mem.eql(u8, a, "--no-save")) {
+                save = false;
             } else return error.UnexpectedArgument;
         }
-        return .{ .inference = .{ .max_disagreements = max_disagreements } };
+        return .{ .inference = .{
+            .max_disagreements = max_disagreements,
+            .threshold_pct = threshold_pct,
+            .save = save,
+        } };
     }
     return error.InvalidCommand;
 }
@@ -277,6 +370,9 @@ pub fn usage() []const u8 {
         \\  chip8 verify inference [--disagreements=<N>]
         \\                                  # grade the inference engine against chip-8-database
         \\  chip8 verify all                # run every fixture-free axis + inference audit
+        \\  chip8 override <rom-id> [--shift=on|off] [--wrap=on|off] [--jump=on|off]
+        \\                         [--logic=on|off] [--tickrate=<n>] [--start=<hex>]
+        \\                         [--platform=<id>] [--font=<name>] [--clear] [--show]
         \\
         \\Environment:
         \\  GITHUB_TOKEN  Optional. Lifts GitHub API rate limits (60/hr → 5000/hr).

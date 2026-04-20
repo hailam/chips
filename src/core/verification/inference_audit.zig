@@ -3,6 +3,7 @@ const models = @import("../registry_models.zig");
 const assembly = @import("../assembly.zig");
 const emulation = @import("../emulation_config.zig");
 const chip8_db_cache = @import("../chip8_db_cache.zig");
+const cache = @import("../cache.zig");
 const ground_truth = @import("oracle/ground_truth.zig");
 const spec = @import("oracle/spec.zig");
 
@@ -247,6 +248,123 @@ fn classifyPlatform(entry: models.Chip8DbEntry, inferred: []const u8) PlatformVe
     return .wrong;
 }
 
+// --- history / regression tracking ----------------------------------------
+
+pub const HistoryEntry = struct {
+    timestamp_ms: i64,
+    total_roms_graded: u32,
+    exact_match: u32,
+    acceptable: u32,
+    wrong: u32,
+    platform_accuracy: f32,
+    overall_quirk_accuracy: f32,
+};
+
+pub const History = struct {
+    runs: []const HistoryEntry,
+
+    pub fn lastRun(self: History) ?HistoryEntry {
+        if (self.runs.len == 0) return null;
+        return self.runs[self.runs.len - 1];
+    }
+};
+
+const SerializedHistory = struct {
+    runs: []HistoryEntry = &.{},
+};
+
+// Fixed-shape entries; no heap pointers live inside HistoryEntry so we
+// don't need the full clone ritual.
+pub fn loadHistory(io: std.Io, allocator: std.mem.Allocator, app_data_root: []const u8) !History {
+    const path = try std.fmt.allocPrint(allocator, "{s}/verification/inference_history.json", .{app_data_root});
+    defer allocator.free(path);
+
+    const parsed_opt = cache.readJson(io, allocator, path, SerializedHistory) catch null;
+    const parsed = parsed_opt orelse return .{ .runs = &.{} };
+    defer parsed.deinit();
+
+    const runs = try allocator.alloc(HistoryEntry, parsed.value.runs.len);
+    @memcpy(runs, parsed.value.runs);
+    return .{ .runs = runs };
+}
+
+pub fn freeHistory(allocator: std.mem.Allocator, history: History) void {
+    allocator.free(history.runs);
+}
+
+// Appends the report as a new HistoryEntry. Keeps the most recent 100 runs
+// to bound file growth. Caller supplies timestamp_ms (testable without
+// std.Io.Clock wiring).
+pub fn appendToHistory(
+    io: std.Io,
+    allocator: std.mem.Allocator,
+    app_data_root: []const u8,
+    report: Report,
+    timestamp_ms: i64,
+) !void {
+    const MAX_RUNS: usize = 100;
+
+    var existing = try loadHistory(io, allocator, app_data_root);
+    defer freeHistory(allocator, existing);
+
+    const new_entry = HistoryEntry{
+        .timestamp_ms = timestamp_ms,
+        .total_roms_graded = report.total_roms_graded,
+        .exact_match = report.exact_match,
+        .acceptable = report.acceptable,
+        .wrong = report.wrong,
+        .platform_accuracy = report.platformAccuracy(),
+        .overall_quirk_accuracy = report.overallQuirkAccuracy(),
+    };
+
+    const start: usize = if (existing.runs.len >= MAX_RUNS) existing.runs.len - (MAX_RUNS - 1) else 0;
+    const keep_count = existing.runs.len - start;
+    const combined = try allocator.alloc(HistoryEntry, keep_count + 1);
+    defer allocator.free(combined);
+    @memcpy(combined[0..keep_count], existing.runs[start..]);
+    combined[keep_count] = new_entry;
+
+    const path = try std.fmt.allocPrint(allocator, "{s}/verification/inference_history.json", .{app_data_root});
+    defer allocator.free(path);
+
+    const view = SerializedHistory{ .runs = combined };
+    try cache.writeJsonAtomic(io, allocator, path, view);
+}
+
+pub const RegressionVerdict = enum { ok, regressed, no_baseline };
+
+pub const RegressionCheck = struct {
+    verdict: RegressionVerdict,
+    baseline_platform: f32 = 0,
+    current_platform: f32 = 0,
+    baseline_quirk: f32 = 0,
+    current_quirk: f32 = 0,
+    worst_drop_pct: f32 = 0,
+};
+
+// Compares `report` to the most-recent history entry and flags a regression
+// when either the platform accuracy or the quirk accuracy dropped by more
+// than `threshold_pct` percentage points. Returns verdict + deltas so the
+// caller can format a useful message.
+pub fn checkRegression(history: History, report: Report, threshold_pct: f32) RegressionCheck {
+    const last = history.lastRun() orelse return .{ .verdict = .no_baseline };
+
+    const cur_p = report.platformAccuracy();
+    const cur_q = report.overallQuirkAccuracy();
+    const plat_drop = (last.platform_accuracy - cur_p) * 100.0;
+    const quirk_drop = (last.overall_quirk_accuracy - cur_q) * 100.0;
+    const worst = @max(plat_drop, quirk_drop);
+
+    return .{
+        .verdict = if (worst > threshold_pct) .regressed else .ok,
+        .baseline_platform = last.platform_accuracy,
+        .current_platform = cur_p,
+        .baseline_quirk = last.overall_quirk_accuracy,
+        .current_quirk = cur_q,
+        .worst_drop_pct = worst,
+    };
+}
+
 fn tallyConfusion(m: *ConfusionMatrix, expected: bool, inferred: bool) void {
     if (expected and inferred) m.true_positive += 1;
     if (!expected and !inferred) m.true_negative += 1;
@@ -267,6 +385,69 @@ test "classifyPlatform respects preference order" {
     try std.testing.expectEqual(PlatformVerdict.exact, classifyPlatform(entry, "xochip"));
     try std.testing.expectEqual(PlatformVerdict.acceptable, classifyPlatform(entry, "superchip1"));
     try std.testing.expectEqual(PlatformVerdict.wrong, classifyPlatform(entry, "chip8x"));
+}
+
+test "checkRegression with no baseline returns no_baseline" {
+    const empty = History{ .runs = &.{} };
+    const report = Report{
+        .total_roms_graded = 5,
+        .exact_match = 5,
+        .acceptable = 0,
+        .wrong = 0,
+        .per_quirk = &.{},
+        .platform_disagreements = &.{},
+    };
+    const check = checkRegression(empty, report, 1.0);
+    try std.testing.expectEqual(RegressionVerdict.no_baseline, check.verdict);
+}
+
+test "checkRegression detects platform-accuracy drop past threshold" {
+    const runs = [_]HistoryEntry{.{
+        .timestamp_ms = 0,
+        .total_roms_graded = 5,
+        .exact_match = 5,
+        .acceptable = 0,
+        .wrong = 0,
+        .platform_accuracy = 1.0,
+        .overall_quirk_accuracy = 1.0,
+    }};
+    const history = History{ .runs = &runs };
+    const report = Report{
+        .total_roms_graded = 5,
+        .exact_match = 3, // dropped from 5
+        .acceptable = 0,
+        .wrong = 2,
+        .per_quirk = &.{},
+        .platform_disagreements = &.{},
+    };
+    const check = checkRegression(history, report, 1.0);
+    try std.testing.expectEqual(RegressionVerdict.regressed, check.verdict);
+    try std.testing.expect(check.worst_drop_pct > 1.0);
+}
+
+test "checkRegression passes when accuracy held steady" {
+    // Report with an empty per_quirk returns overallQuirkAccuracy() == 0, so
+    // the baseline must also be 0 for this to represent "no change".
+    const runs = [_]HistoryEntry{.{
+        .timestamp_ms = 0,
+        .total_roms_graded = 5,
+        .exact_match = 5,
+        .acceptable = 0,
+        .wrong = 0,
+        .platform_accuracy = 1.0,
+        .overall_quirk_accuracy = 0.0,
+    }};
+    const history = History{ .runs = &runs };
+    const report = Report{
+        .total_roms_graded = 5,
+        .exact_match = 5,
+        .acceptable = 0,
+        .wrong = 0,
+        .per_quirk = &.{},
+        .platform_disagreements = &.{},
+    };
+    const check = checkRegression(history, report, 1.0);
+    try std.testing.expectEqual(RegressionVerdict.ok, check.verdict);
 }
 
 test "tallyConfusion increments the right cell" {
