@@ -93,10 +93,14 @@ pub const VerifyCommand = union(enum) {
         save: bool = true,
         json: bool = false,
     },
-    // `chip8 verify all [--json]` — runs spec-invariant axes + per-ROM
-    // memory axis across every installed ROM, plus inference audit.
+    // `chip8 verify all [--json] [--diff] [--no-save]` — runs every
+    // fixture-free axis across installed ROMs. With --diff, compares the
+    // current run's verdicts to the last saved snapshot and lists
+    // changes; exits 1 on any PASS→FAIL transition or new FAIL.
     all: struct {
         json: bool = false,
+        diff: bool = false,
+        save: bool = true,
     },
 };
 
@@ -287,12 +291,18 @@ fn parseVerifyArgs(args: []const []const u8) ParseError!VerifyCommand {
     }
     if (std.mem.eql(u8, sub, "all")) {
         var json: bool = false;
+        var diff: bool = false;
+        var save: bool = true;
         for (args[1..]) |a| {
             if (std.mem.eql(u8, a, "--json")) {
                 json = true;
+            } else if (std.mem.eql(u8, a, "--diff")) {
+                diff = true;
+            } else if (std.mem.eql(u8, a, "--no-save")) {
+                save = false;
             } else return error.UnexpectedArgument;
         }
-        return .{ .all = .{ .json = json } };
+        return .{ .all = .{ .json = json, .diff = diff, .save = save } };
     }
     if (std.mem.eql(u8, sub, "inference")) {
         var max_disagreements: u32 = 10;
@@ -389,7 +399,8 @@ pub fn usage() []const u8 {
         \\                                  # run a single correctness axis (opcodes, memory, sound, quirks)
         \\  chip8 verify inference [--disagreements=<N>] [--threshold=<pct>] [--no-save] [--json]
         \\                                  # grade the inference engine against chip-8-database
-        \\  chip8 verify all [--json]       # run every fixture-free axis + inference audit
+        \\  chip8 verify all [--json] [--diff] [--no-save]
+        \\                                  # run every fixture-free axis + inference audit
         \\  chip8 override <rom-id> [--shift=on|off] [--wrap=on|off] [--jump=on|off]
         \\                         [--logic=on|off] [--tickrate=<n>] [--start=<hex>]
         \\                         [--platform=<id>] [--font=<name>] [--clear] [--show]

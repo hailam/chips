@@ -133,3 +133,169 @@ pub fn formatAxisJson(allocator: std.mem.Allocator, rep: AxisReport, writer: any
     const fake = VerificationReport{ .axes = axes[0..] };
     try formatJson(allocator, fake, writer);
 }
+
+// --- persistence / diff --------------------------------------------------
+//
+// `verify all` snapshots are persisted in a compact form so CI can use
+// `--diff` to show only what changed since the last baseline. We keep the
+// minimum needed for a verdict-level comparison (axis + rom_id + verdict);
+// we don't persist `details` because they contain run-specific noise like
+// cycle counts that would create spurious diffs.
+
+const Allocator = std.mem.Allocator;
+
+pub const HistoryEntry = struct {
+    axis: []const u8,
+    rom_id: []const u8,
+    verdict: []const u8,
+};
+
+pub const HistorySnapshot = struct {
+    timestamp_ms: i64 = 0,
+    entries: []HistoryEntry = &.{},
+};
+
+pub fn entriesForHistory(allocator: Allocator, report: VerificationReport) ![]HistoryEntry {
+    var out = try allocator.alloc(HistoryEntry, report.axes.len);
+    var populated: usize = 0;
+    errdefer {
+        for (out[0..populated]) |e| {
+            allocator.free(e.axis);
+            allocator.free(e.rom_id);
+            allocator.free(e.verdict);
+        }
+        allocator.free(out);
+    }
+    for (report.axes, 0..) |a, i| {
+        out[i] = .{
+            .axis = try allocator.dupe(u8, a.axis_name),
+            .rom_id = try allocator.dupe(u8, a.rom_id),
+            .verdict = try allocator.dupe(u8, a.verdict.asString()),
+        };
+        populated = i + 1;
+    }
+    return out;
+}
+
+pub fn freeHistoryEntries(allocator: Allocator, entries: []HistoryEntry) void {
+    for (entries) |e| {
+        allocator.free(e.axis);
+        allocator.free(e.rom_id);
+        allocator.free(e.verdict);
+    }
+    allocator.free(entries);
+}
+
+pub const DiffRow = struct {
+    axis: []const u8,
+    rom_id: []const u8,
+    before: []const u8, // "absent" if new
+    after: []const u8, // "absent" if removed
+};
+
+pub const Diff = struct {
+    changed: []DiffRow, // verdict changed or newly appeared/disappeared
+    unchanged_count: u32,
+
+    pub fn deinit(self: Diff, allocator: Allocator) void {
+        for (self.changed) |r| {
+            allocator.free(r.axis);
+            allocator.free(r.rom_id);
+            allocator.free(r.before);
+            allocator.free(r.after);
+        }
+        allocator.free(self.changed);
+    }
+
+    // Anything that went PASS→FAIL or is a new FAIL counts as a
+    // regression. Exit-code gating keys off this.
+    pub fn hasRegressions(self: Diff) bool {
+        for (self.changed) |r| {
+            if (std.mem.eql(u8, r.after, "FAIL") or std.mem.eql(u8, r.after, "ERROR")) return true;
+        }
+        return false;
+    }
+};
+
+pub fn diffReports(
+    allocator: Allocator,
+    baseline: []const HistoryEntry,
+    current: []const HistoryEntry,
+) !Diff {
+    var rows: std.ArrayList(DiffRow) = .empty;
+    errdefer {
+        for (rows.items) |r| {
+            allocator.free(r.axis);
+            allocator.free(r.rom_id);
+            allocator.free(r.before);
+            allocator.free(r.after);
+        }
+        rows.deinit(allocator);
+    }
+
+    var unchanged: u32 = 0;
+
+    // Transitions + new rows.
+    for (current) |cur| {
+        if (findMatching(baseline, cur.axis, cur.rom_id)) |prev| {
+            if (!std.mem.eql(u8, prev.verdict, cur.verdict)) {
+                try rows.append(allocator, .{
+                    .axis = try allocator.dupe(u8, cur.axis),
+                    .rom_id = try allocator.dupe(u8, cur.rom_id),
+                    .before = try allocator.dupe(u8, prev.verdict),
+                    .after = try allocator.dupe(u8, cur.verdict),
+                });
+            } else {
+                unchanged += 1;
+            }
+        } else {
+            try rows.append(allocator, .{
+                .axis = try allocator.dupe(u8, cur.axis),
+                .rom_id = try allocator.dupe(u8, cur.rom_id),
+                .before = try allocator.dupe(u8, "absent"),
+                .after = try allocator.dupe(u8, cur.verdict),
+            });
+        }
+    }
+
+    // Rows that existed in baseline but are gone now (ROM uninstalled, etc.).
+    for (baseline) |prev| {
+        if (findMatching(current, prev.axis, prev.rom_id) == null) {
+            try rows.append(allocator, .{
+                .axis = try allocator.dupe(u8, prev.axis),
+                .rom_id = try allocator.dupe(u8, prev.rom_id),
+                .before = try allocator.dupe(u8, prev.verdict),
+                .after = try allocator.dupe(u8, "absent"),
+            });
+        }
+    }
+
+    return .{ .changed = try rows.toOwnedSlice(allocator), .unchanged_count = unchanged };
+}
+
+fn findMatching(list: []const HistoryEntry, axis: []const u8, rom_id: []const u8) ?HistoryEntry {
+    for (list) |e| {
+        if (std.mem.eql(u8, e.axis, axis) and std.mem.eql(u8, e.rom_id, rom_id)) return e;
+    }
+    return null;
+}
+
+test "diffReports flags changed verdicts and new/missing rows" {
+    const allocator = std.testing.allocator;
+    const baseline = [_]HistoryEntry{
+        .{ .axis = "memory", .rom_id = "a", .verdict = "PASS" },
+        .{ .axis = "memory", .rom_id = "b", .verdict = "FAIL" },
+        .{ .axis = "opcodes", .rom_id = "c", .verdict = "PASS" },
+    };
+    const current = [_]HistoryEntry{
+        .{ .axis = "memory", .rom_id = "a", .verdict = "FAIL" }, // regressed
+        .{ .axis = "memory", .rom_id = "b", .verdict = "PASS" }, // fixed
+        .{ .axis = "sound", .rom_id = "d", .verdict = "PASS" }, // new
+        // opcodes/c absent
+    };
+    const diff = try diffReports(allocator, &baseline, &current);
+    defer diff.deinit(allocator);
+    try std.testing.expectEqual(@as(u32, 0), diff.unchanged_count);
+    try std.testing.expectEqual(@as(usize, 4), diff.changed.len);
+    try std.testing.expect(diff.hasRegressions());
+}

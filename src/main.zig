@@ -19,6 +19,7 @@ const axis_opcodes = @import("core/verification/axis/opcodes.zig");
 const axis_memory = @import("core/verification/axis/memory.zig");
 const axis_sound = @import("core/verification/axis/sound.zig");
 const axis_quirks = @import("core/verification/axis/quirks.zig");
+const axis_timing = @import("core/verification/axis/timing.zig");
 const inference_audit = @import("core/verification/inference_audit.zig");
 const corpus_mod = @import("core/verification/corpus.zig");
 const ref_fb_mod = @import("core/verification/oracle/reference_framebuffers.zig");
@@ -1398,11 +1399,11 @@ fn runVerifyCommand(init: std.process.Init, cmd: cli.VerifyCommand) !void {
         .tests => |t| try runVerifyTest(init, t.test_id, t.rom_path, t.reference_hash, t.json),
         .axis => |a| try runVerifyAxis(init, a),
         .inference => |i| try runVerifyInference(init, i.max_disagreements, i.threshold_pct, i.save, i.json),
-        .all => |a| try runVerifyAll(init, a.json),
+        .all => |a| try runVerifyAll(init, a.json, a.diff, a.save),
     }
 }
 
-fn runVerifyAll(init: std.process.Init, json: bool) !void {
+fn runVerifyAll(init: std.process.Init, json: bool, diff: bool, save: bool) !void {
     const app_data_root = try persistence.defaultAppDataRootAlloc(init.gpa, init.minimal.environ);
     defer init.gpa.free(app_data_root);
 
@@ -1435,10 +1436,46 @@ fn runVerifyAll(init: std.process.Init, json: bool) !void {
     } else {
         try verify_report.formatHuman(report, w);
     }
+
+    // Build a persistable snapshot of the current run.
+    const current_entries = try verify_report.entriesForHistory(init.gpa, report);
+    defer verify_report.freeHistoryEntries(init.gpa, current_entries);
+
+    const history_path = try std.fmt.allocPrint(init.gpa, "{s}/verification/verify_history.json", .{app_data_root});
+    defer init.gpa.free(history_path);
+
+    // --diff: load baseline, show transitions, exit non-zero on regressions.
+    var had_regression = false;
+    if (diff) {
+        const baseline_parsed = cache.readJson(init.io, init.gpa, history_path, verify_report.HistorySnapshot) catch null;
+        defer if (baseline_parsed) |p| p.deinit();
+
+        const baseline_entries: []const verify_report.HistoryEntry = if (baseline_parsed) |p| p.value.entries else &.{};
+        const d = try verify_report.diffReports(init.gpa, baseline_entries, current_entries);
+        defer d.deinit(init.gpa);
+
+        if (!json) {
+            try w.print("\nDiff vs last verify-all run ({d} unchanged, {d} changed):\n", .{ d.unchanged_count, d.changed.len });
+            for (d.changed) |row| {
+                try w.print("  {s} :: {s}  {s} → {s}\n", .{ row.axis, row.rom_id, row.before, row.after });
+            }
+            if (d.changed.len == 0) try w.print("  (none)\n", .{});
+        }
+        had_regression = d.hasRegressions();
+    }
+
     try w.flush();
 
+    if (save) {
+        const snapshot = verify_report.HistorySnapshot{
+            .timestamp_ms = std.Io.Clock.now(.real, init.io).toMilliseconds(),
+            .entries = current_entries,
+        };
+        try cache.writeJsonAtomic(init.io, init.gpa, history_path, snapshot);
+    }
+
     const s = report.summary();
-    if (s.fail > 0 or s.err > 0) std.process.exit(1);
+    if (s.fail > 0 or s.err > 0 or had_regression) std.process.exit(1);
 }
 
 fn runVerifyTest(init: std.process.Init, test_id_str: []const u8, rom_path_opt: ?[]const u8, reference: ?[]const u8, json: bool) !void {
@@ -1562,6 +1599,14 @@ fn runVerifyAxis(init: std.process.Init, a: anytype) !void {
         return;
     }
 
+    if (std.mem.eql(u8, a.axis_name, "timing")) {
+        const rep = try axis_timing.runSyntheticInvariants(init.gpa);
+        defer rep.deinit(init.gpa);
+        try emitAxisReportOut(init, rep, a.json);
+        if (rep.verdict == .fail) std.process.exit(1);
+        return;
+    }
+
     if (std.mem.eql(u8, a.axis_name, "quirks")) {
         // Auto-resolve 5-quirks.ch8 when no path was passed.
         const rom_path = a.rom_path orelse (try resolveInstalledTestRom(init, .quirks)) orelse {
@@ -1599,7 +1644,7 @@ fn runVerifyAxis(init: std.process.Init, a: anytype) !void {
         return;
     }
 
-    std.debug.print("Unknown axis: {s}  (available: opcodes, memory, sound, quirks)\n", .{a.axis_name});
+    std.debug.print("Unknown axis: {s}  (available: opcodes, memory, sound, timing, quirks)\n", .{a.axis_name});
     std.process.exit(2);
 }
 

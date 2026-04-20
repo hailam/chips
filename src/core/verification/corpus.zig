@@ -8,6 +8,7 @@ const axis_memory = @import("axis/memory.zig");
 const axis_sound = @import("axis/sound.zig");
 const axis_opcodes = @import("axis/opcodes.zig");
 const axis_quirks = @import("axis/quirks.zig");
+const axis_timing = @import("axis/timing.zig");
 const test_suite = @import("test_suite.zig");
 const ref_fb = @import("oracle/reference_framebuffers.zig");
 
@@ -48,6 +49,7 @@ pub fn runAll(run: CorpusRun) !report_mod.VerificationReport {
     // Spec-invariant axes (fixture-free, always run).
     try axes.append(run.allocator, try axis_memory.runSyntheticInvariants(run.allocator));
     try axes.append(run.allocator, try axis_sound.runSyntheticInvariants(run.allocator));
+    try axes.append(run.allocator, try axis_timing.runSyntheticInvariants(run.allocator));
 
     // Per-ROM memory axis runs for every installed ROM with bytes we can
     // read. Honors the database's start_address when present. When the
@@ -186,8 +188,8 @@ test "runAll over an empty installed list still runs synthetic axes" {
     });
     defer report.deinit(allocator);
 
-    // memory + sound synthetic invariants always run.
-    try std.testing.expectEqual(@as(usize, 2), report.axes.len);
+    // memory + sound + timing synthetic invariants always run.
+    try std.testing.expectEqual(@as(usize, 3), report.axes.len);
     const s = report.summary();
-    try std.testing.expect(s.pass == 2);
+    try std.testing.expect(s.pass == 3);
 }
