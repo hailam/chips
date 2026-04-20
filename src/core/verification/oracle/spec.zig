@@ -116,6 +116,10 @@ pub fn applyQuirkOverride(base: Quirks, override: models.QuirkSet) Quirks {
     };
 }
 
+// COSMAC VIP machine-cycle costs per opcode live in `cpu.zig`'s
+// `cyclesFor` function — that's the single source of truth both the
+// emulator and the verification axis read from. Not duplicated here.
+
 test "findPlatform resolves known ids" {
     try std.testing.expect(findPlatform("originalChip8") != null);
     try std.testing.expect(findPlatform("xochip") != null);

@@ -17,6 +17,77 @@ pub const DISPLAY_PLANE_COUNT = 2;
 pub const RPL_COUNT = 16;
 pub const XO_AUDIO_PATTERN_SIZE = 16;
 
+// Per-opcode cycle cost. CHIP-8 opcodes use COSMAC VIP machine cycles
+// (Matthew Mikolay's reference + 1978 VIP interpreter listing); SCHIP and
+// XO-CHIP opcodes use community-documented approximations since the VIP
+// never ran them.
+//
+// This function is the emulator's declared cycle model. The verification
+// axis carries its OWN hard-coded expected values for a fixture set so a
+// drift in this table doesn't silently pass the axis — the two references
+// have to agree for the checks to clear.
+//
+// Data-dependent opcodes report a fixed base here; callers can augment
+// from observed work (e.g. DRW's per-row cost via `last_draw_rows`).
+pub fn cyclesFor(inst: Instruction) u32 {
+    return switch (inst) {
+        .cls => 3078,
+        .ret => 10,
+        .jmp => 12,
+        .call => 26,
+        .se_byte, .sne_byte => 10,
+        .se_reg, .sne_reg => 14,
+        .ld_byte => 6,
+        .add_byte => 10,
+        .ld_reg => 12,
+        .or_reg, .and_reg, .xor_reg, .add_reg, .sub_reg, .subn_reg, .shr, .shl => 44,
+        .ld_i => 12,
+        .jmp_v0 => 22,
+        .rnd => 36,
+        .drw => 3812, // base; see last_draw_rows for per-row accumulation
+        .skp, .sknp => 14,
+        .ld_vx_dt => 10,
+        // FX0A polls the keypad in a tight loop; one poll iteration is
+        // about 40 cycles on VIP. The live handler reports the same.
+        .ld_vx_k => 40,
+        .ld_dt_vx, .ld_st_vx => 6,
+        .add_i_vx => 12,
+        .ld_f_vx => 20,
+        .ld_b_vx => 100,
+        // FX55/FX65 report the minimum (X=0 → 28 cycles) here; the live
+        // handler computes `14 + 14*(X+1)` and overrides
+        // last_instruction_cycles for the data-dependent total.
+        .ld_i_vx, .ld_vx_i => 28,
+
+        // --- SCHIP extensions (structural approximations) ---
+        // No per-opcode cycle reference exists upstream. Octo's docs and
+        // Chromatophore's HP48-Superchip report talk about 13–50 cycles
+        // *per frame* for HP48 S/G — a platform-level model, not per-
+        // instruction. Values below come from behavior analysis (SCHIP
+        // scrolls rewrite the framebuffer much like CLS; FX30/FX75/FX85
+        // mirror FX29/FX55/FX65 in shape). They're approximations and
+        // flagged as such. If a per-opcode SCHIP reference lands, update
+        // them and the axis's expected values together.
+        .scd, .scu, .scr, .scl => 3000, // framebuffer-wide — ~CLS-equivalent
+        .exit => 4,
+        .low, .high => 60, // display mode toggle
+        .ld_hf_vx => 40, // large-font variant of LD F, Vx
+        .ld_r_vx, .ld_vx_r => 14, // RPL save/load, shaped like FX55/FX65
+
+        // --- XO-CHIP extensions (structural approximations) ---
+        // Same story — John Earnest's XO-CHIP spec covers behavior only.
+        // These values follow the shape of the closest CHIP-8 opcode.
+        .save_range, .load_range => 14, // range-flavored FX55/FX65
+        .ld_i_long => 18, // two-word LD I
+        .plane => 6,
+        .audio => 20,
+        .ld_pitch_vx => 10,
+
+        .sys => 0,
+        .unknown => 0,
+    };
+}
+
 pub const DisplayMode = enum(u8) {
     lores,
     hires,
@@ -343,6 +414,14 @@ pub const CPU = struct {
     reg_change_age: [CHIP8_REGISTER_COUNT]u32,
     last_flow: DataFlow,
     last_trace: trace_mod.TraceEntry,
+    // COSMAC VIP machine cycles for the most recently executed instruction.
+    // Set by `executeInstruction` from the reference table so the timing
+    // axis can grade per-opcode cycle behavior. Not load-bearing for
+    // emulation — purely observational.
+    last_instruction_cycles: u32 = 0,
+    // Rows actually rasterized by the most recent DRW. Used alongside
+    // last_instruction_cycles so data-dependent cost is observable.
+    last_draw_rows: u32 = 0,
 
     pub const FlowKind = enum {
         none,
@@ -620,6 +699,7 @@ pub const CPU = struct {
 
         const fetch_pc = self.program_counter;
         const decoded = DecodedInstruction.decodeForQuirks(memory, fetch_pc, quirks);
+        self.last_instruction_cycles = cyclesFor(decoded.instruction);
 
         var trace_entry = trace_mod.TraceEntry.init(fetch_pc, decoded.opcode_hi, .fetch);
         trace_entry.opcode_lo = decoded.opcode_lo;
@@ -882,6 +962,18 @@ pub const CPU = struct {
                 self.registers[0xF] = draw_result.vf;
                 self.draw_flag = true;
                 self.last_i_target = self.index_register;
+                // COSMAC VIP's DRW cost scales with rows drawn. Update
+                // last_instruction_cycles with the data-dependent total
+                // now that we know how many rows were actually rasterized.
+                // Formula: base 3812 + 68 cycles per row.
+                self.last_draw_rows = @intCast(draw_result.logical_h);
+                // VIP: base 3812 + 68 cycles per 8-pixel row. SCHIP's DXY0
+                // draws 16-pixel rows — twice the pixels per row → twice
+                // the per-row cost. No published SCHIP cycle reference
+                // exists; scaling proportionally to sprite width is the
+                // structural approximation.
+                const width_cost: u32 = 68 * @as(u32, @intCast(draw_result.logical_w)) / 8;
+                self.last_instruction_cycles = 3812 + width_cost * @as(u32, @intCast(draw_result.logical_h));
                 self.last_flow = .{ .kind = .sprite_read, .src_addr = self.index_register, .src_len = @intCast(sprite_height * bytes_per_row), .vx = s.vx, .vy = s.vy, .opcode = decoded.opcode_hi };
                 trace_entry.tag = .draw;
                 trace_entry.source = trace_mod.memoryEndpoint(self.index_register, sprite_height * bytes_per_row);
@@ -910,6 +1002,11 @@ pub const CPU = struct {
                 self.waiting_for_key = true;
                 self.key_register = vx;
                 self.program_counter -%= decoded.byte_len;
+                // FX0A is a busy poll — on VIP, one iteration of the keypad
+                // scan + branch is ~40 cycles. Each call to
+                // executeInstruction represents one poll, so this is the
+                // cost per call (unbounded total until a key is pressed).
+                self.last_instruction_cycles = 40;
                 self.last_flow = .{ .kind = .key_wait, .vx = vx, .opcode = decoded.opcode_hi };
                 trace_entry.tag = .key;
                 trace_entry.source = trace_mod.keypadEndpoint(null, vx, true);
@@ -979,6 +1076,9 @@ pub const CPU = struct {
                 }
                 if (quirks.load_store_increment_i) self.index_register +%= @intCast(count);
                 self.last_i_target = self.index_register;
+                // VIP FX55 microcode loops one register at a time; each
+                // iteration is ~14 machine cycles plus ~14 setup.
+                self.last_instruction_cycles = 14 + 14 * @as(u32, @intCast(count));
                 self.last_flow = .{ .kind = .i_write, .src_addr = self.index_register, .src_len = @intCast(count), .vx = vx, .opcode = decoded.opcode_hi };
                 trace_entry.tag = .store;
                 trace_entry.source = trace_mod.registersEndpoint(0, count);
@@ -991,6 +1091,8 @@ pub const CPU = struct {
                 for (0..count) |i| self.registers[i] = memory[self.index_register + i];
                 if (quirks.load_store_increment_i) self.index_register +%= @intCast(count);
                 self.last_i_target = self.index_register;
+                // Symmetric with FX55 — VIP FX65's per-register loop cost.
+                self.last_instruction_cycles = 14 + 14 * @as(u32, @intCast(count));
                 self.last_flow = .{ .kind = .i_read, .src_addr = self.index_register, .src_len = @intCast(count), .vx = vx, .opcode = decoded.opcode_hi };
                 trace_entry.tag = .load;
                 trace_entry.source = trace_mod.memoryEndpoint(self.index_register, count);
