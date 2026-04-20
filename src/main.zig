@@ -819,10 +819,14 @@ fn applyDisplayColorFromResolution(resolution: runtime_check.ConfigResolution) v
     const pixels = colors.pixels orelse return;
 
     // `pixels` is ordered by the plane-mask encoding:
-    //   [0] = 00 (off),   [1] = 01 (plane-1 on),
-    //   [2] = 10 (plane-2 on),  [3] = 11 (both on).
-    // CHIP-8 ROMs only need [1]; XO-CHIP can supply all four. We apply
-    // [1]..[3] since [0] (background) isn't wired through the canvas yet.
+    //   [0] = 00 (off / canvas background),
+    //   [1] = 01 (plane-1 on),
+    //   [2] = 10 (plane-2 on),
+    //   [3] = 11 (both planes on).
+    // CHIP-8 ROMs only need [1]; XO-CHIP can supply all four.
+    if (pixels.len >= 1) {
+        if (display.parseHexColor(pixels[0])) |c| display.setBackgroundColorOverride(c);
+    }
     if (pixels.len >= 2) {
         if (display.parseHexColor(pixels[1])) |c| display.setPrimaryColorOverride(c);
     }

@@ -214,6 +214,7 @@ fn withAlpha(color: rl.Color, alpha: u8) rl.Color {
 var primary_color_override: ?rl.Color = null;
 var secondary_color_override: ?rl.Color = null;
 var blended_color_override: ?rl.Color = null;
+var background_color_override: ?rl.Color = null;
 
 pub fn setPrimaryColorOverride(color: rl.Color) void {
     primary_color_override = color;
@@ -227,10 +228,15 @@ pub fn setBlendedColorOverride(color: rl.Color) void {
     blended_color_override = color;
 }
 
+pub fn setBackgroundColorOverride(color: rl.Color) void {
+    background_color_override = color;
+}
+
 pub fn clearPrimaryColorOverride() void {
     primary_color_override = null;
     secondary_color_override = null;
     blended_color_override = null;
+    background_color_override = null;
 }
 
 fn primaryAccent(settings: persistence.DisplaySettings) rl.Color {
@@ -706,7 +712,11 @@ fn renderDisplay(
     const logical_h = cpu.displayHeight();
     const cell_w = displayCellWidth(panel, cpu.display_mode);
     const cell_h = displayCellHeight(panel, cpu.display_mode);
-    rl.drawRectangle(panel.x, panel.y, panel.w, panel.h, BG_DARK);
+    // ROM-specified background wins over the app's default dark fill when
+    // the db supplies one. Typical XO-CHIP palettes want a near-black but
+    // non-pitch background (e.g. garlicscape's #001000).
+    const bg = background_color_override orelse BG_DARK;
+    rl.drawRectangle(panel.x, panel.y, panel.w, panel.h, bg);
     for (0..logical_h) |row| {
         for (0..logical_w) |col| {
             const pixel = cpu.compositePixel(col, row);
