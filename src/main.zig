@@ -1350,11 +1350,15 @@ fn runVerifyAll(init: std.process.Init, json: bool) !void {
     var db_cache = try chip8_db_cache.load(init.io, init.gpa, app_data_root);
     defer db_cache.deinit();
 
+    var ref_store = ref_fb_mod.load(init.io, init.gpa, app_data_root) catch ref_fb_mod.Store{ .allocator = init.gpa };
+    defer ref_store.deinit();
+
     const report = try corpus_mod.runAll(.{
         .io = init.io,
         .allocator = init.gpa,
         .installed = installed,
         .db_cache = &db_cache,
+        .ref_store = &ref_store,
     });
     defer report.deinit(init.gpa);
 

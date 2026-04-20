@@ -4,47 +4,50 @@ const test_suite = @import("../test_suite.zig");
 const emulation = @import("../../emulation_config.zig");
 const ref_fb = @import("../oracle/reference_framebuffers.zig");
 
-// Opcode axis. Oracle: Timendus's 3-corax+.ch8 (and 4-flags.ch8 later).
+// Framebuffer-output axis. Oracle: any Timendus test whose pass/fail is
+// encoded in what it DRAWS on screen — 3-corax+ (opcode grid), 4-flags
+// (arithmetic/flag grid), 1-chip8-logo + 2-ibm-logo (static images).
 //
-// v1 verdict policy:
-//   - Run the test ROM for its default cycle budget.
-//   - Compute framebuffer hash + render an ASCII snapshot.
-//   - If caller supplies a reference hash, compare → pass/fail.
-//   - Otherwise use a coarse heuristic: the corax+ screen draws ~24 grid
-//     cells with visible glyphs; a crashed/hung run leaves the display
-//     nearly empty. We pass when the lit-pixel count crosses a reasonable
-//     floor. This is a placeholder for the full per-cell parser — it
-//     catches catastrophic emulator failures (traps, wrong opcode decode)
-//     without claiming per-opcode coverage.
+// Verdict policy:
+//   1. If a reference framebuffer hash is supplied (directly or via the
+//      reference-framebuffer store), compare → pass/fail.
+//   2. Otherwise apply a coarse lit-pixel heuristic. Every supported test
+//      draws a dense output; a crashed/hung emulator leaves the screen
+//      nearly empty. Pass when lit ≥ `opts.min_lit_pixels`.
 //
-// `details` on the returned AxisReport always includes the observed hex
-// hash so the user can capture it as a future reference.
+// `axis_name` on the returned report comes from `opts.axis_name`, so the
+// same function powers both `opcodes` (corax+, flags) and `display`
+// (ibm-logo, chip8-logo) surfaces without duplicating the plumbing.
 
 pub const RunOptions = struct {
-    // Optional reference framebuffer hash (SHA-256, lowercase hex) to
-    // compare against. null → use the heuristic OR consult `store` if set.
+    test_id: test_suite.TestId = .corax_plus,
+    // Optional reference framebuffer hash (SHA-256, lowercase hex).
     reference_hash: ?[]const u8 = null,
-    // Optional reference-framebuffer store; if the ROM's sha1 is keyed in
-    // it AND a snapshot exists at the cycle we ran, the axis uses that
-    // hash as the reference before falling back to the heuristic.
+    // Optional reference-framebuffer store; looked up by (sha1, cycles_run).
     store: ?*const ref_fb.Store = null,
-    // ROM's SHA-1, needed to query the store. Skipped when null.
     rom_sha1: ?[]const u8 = null,
     cycles: ?u32 = null,
     profile: emulation.QuirkProfile = .vip_legacy,
-    rom_id: []const u8 = "3-corax+",
+    // Report fields.
+    axis_name: []const u8 = "opcodes",
+    rom_id: ?[]const u8 = null, // defaults to test_id.displayName()
+    min_lit_pixels: u32 = 200,
 };
 
-pub fn runCoraxPlus(
+// Generic entry. Previous callers that used `runCoraxPlus` should migrate
+// here; the old name is kept as a thin shim for backward-compat.
+pub fn runFramebufferAxis(
     allocator: std.mem.Allocator,
     rom_bytes: []const u8,
     opts: RunOptions,
 ) !report_mod.AxisReport {
-    const result = test_suite.runHeadless(allocator, .corax_plus, rom_bytes, opts.cycles, opts.profile) catch |err| {
+    const rom_id = opts.rom_id orelse opts.test_id.displayName();
+
+    const result = test_suite.runHeadless(allocator, opts.test_id, rom_bytes, opts.cycles, opts.profile) catch |err| {
         return try report_mod.AxisReport.simple(
             allocator,
-            "opcodes",
-            opts.rom_id,
+            opts.axis_name,
+            rom_id,
             .harness_error,
             @errorName(err),
         );
@@ -72,8 +75,8 @@ pub fn runCoraxPlus(
         const diagnostics = if (verdict == .fail) try buildMismatchDiagnostics(allocator, ref, hash_hex, result) else try allocator.alloc(report_mod.Diagnostic, 0);
         allocator.free(hash_hex);
         return .{
-            .axis_name = try allocator.dupe(u8, "opcodes"),
-            .rom_id = try allocator.dupe(u8, opts.rom_id),
+            .axis_name = try allocator.dupe(u8, opts.axis_name),
+            .rom_id = try allocator.dupe(u8, rom_id),
             .verdict = verdict,
             .details = details,
             .diagnostics = diagnostics,
@@ -83,7 +86,7 @@ pub fn runCoraxPlus(
     // Heuristic fallback: count lit pixels.
     const lit = countLitPixels(result.pixels);
     const total: u32 = @as(u32, result.width) * @as(u32, result.height);
-    const verdict: report_mod.Verdict = if (lit >= minimum_expected_lit_pixels) .pass else .fail;
+    const verdict: report_mod.Verdict = if (lit >= opts.min_lit_pixels) .pass else .fail;
 
     const details = try std.fmt.allocPrint(
         allocator,
@@ -104,18 +107,25 @@ pub fn runCoraxPlus(
     } else try allocator.alloc(report_mod.Diagnostic, 0);
 
     return .{
-        .axis_name = try allocator.dupe(u8, "opcodes"),
-        .rom_id = try allocator.dupe(u8, opts.rom_id),
+        .axis_name = try allocator.dupe(u8, opts.axis_name),
+        .rom_id = try allocator.dupe(u8, rom_id),
         .verdict = verdict,
         .details = details,
         .diagnostics = diagnostics,
     };
 }
 
-// The corax+ screen draws 24 cells of text + a grid. A healthy run shows
-// far more than 200 lit pixels; a crashed run usually shows <50 (logo
-// fragment at best). 200 is a conservative floor.
-const minimum_expected_lit_pixels: u32 = 200;
+// Legacy shim — old callsites that assumed corax+.
+pub fn runCoraxPlus(
+    allocator: std.mem.Allocator,
+    rom_bytes: []const u8,
+    opts: RunOptions,
+) !report_mod.AxisReport {
+    var fixed = opts;
+    fixed.test_id = .corax_plus;
+    if (fixed.rom_id == null) fixed.rom_id = "3-corax+";
+    return runFramebufferAxis(allocator, rom_bytes, fixed);
+}
 
 fn countLitPixels(pixels: []const u8) u32 {
     var count: u32 = 0;
@@ -159,4 +169,16 @@ test "runCoraxPlus reports harness_error for empty rom" {
     // Empty ROM still runs (decodes zeros as 00E0 clear-screen, etc.) — the
     // heuristic will mark this FAIL (no lit pixels), not harness_error.
     try std.testing.expect(rep.verdict == .fail);
+}
+
+test "runFramebufferAxis with explicit test_id uses the right defaults" {
+    const allocator = std.testing.allocator;
+    const rom = [_]u8{ 0x12, 0x00 }; // JP 0x200 — infinite loop, blank frame
+    const rep = try runFramebufferAxis(allocator, &rom, .{
+        .test_id = .ibm_logo,
+        .axis_name = "display",
+    });
+    defer rep.deinit(allocator);
+    try std.testing.expectEqualStrings("display", rep.axis_name);
+    try std.testing.expectEqualStrings("2-ibm-logo", rep.rom_id);
 }

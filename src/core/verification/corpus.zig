@@ -6,6 +6,10 @@ const ground_truth = @import("oracle/ground_truth.zig");
 const report_mod = @import("report.zig");
 const axis_memory = @import("axis/memory.zig");
 const axis_sound = @import("axis/sound.zig");
+const axis_opcodes = @import("axis/opcodes.zig");
+const axis_quirks = @import("axis/quirks.zig");
+const test_suite = @import("test_suite.zig");
+const ref_fb = @import("oracle/reference_framebuffers.zig");
 
 // Batch runner. Composes every axis we currently support across a set of
 // installed ROMs + the spec-invariant axes. Output is a single
@@ -28,6 +32,10 @@ pub const CorpusRun = struct {
     allocator: std.mem.Allocator,
     installed: []const models.InstalledRom,
     db_cache: *const chip8_db_cache.State,
+    // Optional — when a reference-framebuffer store is provided, fixture
+    // axes (opcodes, quirks) use it for precise grading instead of the
+    // lit-pixel heuristic.
+    ref_store: ?*const ref_fb.Store = null,
 };
 
 pub fn runAll(run: CorpusRun) !report_mod.VerificationReport {
@@ -42,7 +50,9 @@ pub fn runAll(run: CorpusRun) !report_mod.VerificationReport {
     try axes.append(run.allocator, try axis_sound.runSyntheticInvariants(run.allocator));
 
     // Per-ROM memory axis runs for every installed ROM with bytes we can
-    // read. Honors the database's start_address when present.
+    // read. Honors the database's start_address when present. When the
+    // ROM is one of Timendus's test fixtures (installed via
+    // `chip8 get timendus:<id>`), also dispatch the fixture-aware axis.
     for (run.installed) |rom| {
         const rom_bytes = std.Io.Dir.cwd().readFileAlloc(run.io, rom.local.path, run.allocator, .limited(64 * 1024)) catch |err| {
             try axes.append(run.allocator, try report_mod.AxisReport.simple(
@@ -66,9 +76,66 @@ pub fn runAll(run: CorpusRun) !report_mod.VerificationReport {
             .cycles = 50_000,
         });
         try axes.append(run.allocator, rep);
+
+        try runFixtureAxesForRom(run, rom, rom_bytes, &axes);
     }
 
     return .{ .axes = try axes.toOwnedSlice(run.allocator) };
+}
+
+// Dispatch to the per-test-ROM axes when the installed ROM matches one of
+// Timendus's fixtures. Keeps `verify all` opportunistic: if the ROM isn't
+// installed, nothing extra runs; if it is, we exercise the matching axis
+// automatically.
+fn runFixtureAxesForRom(
+    run: CorpusRun,
+    rom: models.InstalledRom,
+    rom_bytes: []const u8,
+    axes: *std.ArrayList(report_mod.AxisReport),
+) !void {
+    const test_id = test_suite.TestId.fromString(rom.metadata.id) orelse return;
+
+    switch (test_id) {
+        .corax_plus, .flags => {
+            // Both ROMs draw a pass/fail grid; the "opcodes" axis checks
+            // that the grid rendered + matches any captured reference.
+            const rep = try axis_opcodes.runFramebufferAxis(run.allocator, rom_bytes, .{
+                .test_id = test_id,
+                .rom_id = rom.metadata.id,
+                .axis_name = "opcodes",
+                .store = run.ref_store,
+                .rom_sha1 = rom.metadata.sha1,
+            });
+            try axes.append(run.allocator, rep);
+        },
+        .chip8_logo, .ibm_logo => {
+            // Static-image tests. Route through the "display" axis name so
+            // downstream consumers can slice by axis.
+            const rep = try axis_opcodes.runFramebufferAxis(run.allocator, rom_bytes, .{
+                .test_id = test_id,
+                .rom_id = rom.metadata.id,
+                .axis_name = "display",
+                .store = run.ref_store,
+                .rom_sha1 = rom.metadata.sha1,
+                // Logo tests have smaller lit footprint than corax+; lower
+                // the floor so a correct render still clears it without
+                // also accepting a crash.
+                .min_lit_pixels = 60,
+            });
+            try axes.append(run.allocator, rep);
+        },
+        .quirks => {
+            const quirk_reports = try axis_quirks.runForRom(run.allocator, rom_bytes, .{
+                .rom_id = rom.metadata.id,
+                .store = run.ref_store,
+                .rom_sha1 = rom.metadata.sha1,
+            });
+            defer run.allocator.free(quirk_reports);
+            for (quirk_reports) |r| try axes.append(run.allocator, r);
+        },
+        // Remaining test IDs (beep, scrolling) need dedicated analyzers.
+        else => {},
+    }
 }
 
 fn lookupStartAddress(db: *const chip8_db_cache.State, sha1_opt: ?[]const u8) ?u16 {
