@@ -383,13 +383,13 @@ pub fn usage() []const u8 {
         \\  chip8 registries                # list configured known registries
         \\  chip8 init [path]               # scaffold a chip8.json in a directory
         \\  chip8 validate [path]           # validate a chip8.json against the spec
-        \\  chip8 verify tests <id> [<rom>] [--reference=<hex>]
+        \\  chip8 verify tests <id> [<rom>] [--reference=<hex>] [--json]
         \\                                  # run a Timendus test ROM headlessly; installs are auto-resolved
-        \\  chip8 verify axis <name> [<rom>] [--reference=<hex>] [--start=<hex>]
-        \\                                  # run a single correctness axis (opcodes, memory, sound)
-        \\  chip8 verify inference [--disagreements=<N>]
+        \\  chip8 verify axis <name> [<rom>] [--reference=<hex>] [--start=<hex>] [--json]
+        \\                                  # run a single correctness axis (opcodes, memory, sound, quirks)
+        \\  chip8 verify inference [--disagreements=<N>] [--threshold=<pct>] [--no-save] [--json]
         \\                                  # grade the inference engine against chip-8-database
-        \\  chip8 verify all                # run every fixture-free axis + inference audit
+        \\  chip8 verify all [--json]       # run every fixture-free axis + inference audit
         \\  chip8 override <rom-id> [--shift=on|off] [--wrap=on|off] [--jump=on|off]
         \\                         [--logic=on|off] [--tickrate=<n>] [--start=<hex>]
         \\                         [--platform=<id>] [--font=<name>] [--clear] [--show]

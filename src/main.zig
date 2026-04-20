@@ -752,14 +752,37 @@ fn loadRomIntoRuntime(
     ui_state.overlay = .none;
     const profile_upgraded = requested_profile == null and pref != null and pref.?.quirk_profile != profile;
     const speed_upgraded = requested_profile == null and saved_hz != null and saved_hz.? != hz;
-    if (profile_upgraded and speed_upgraded) {
-        ui_state.setStatusFmt("Auto: {s} {d}Hz", .{ emulation.profileLabel(profile), hz });
-    } else if (profile_upgraded) {
-        ui_state.setStatusFmt("Auto profile: {s}", .{emulation.profileLabel(profile)});
-    } else if (speed_upgraded) {
-        ui_state.setStatusFmt("Auto speed: {d}Hz", .{hz});
-    } else {
-        ui_state.clearStatus();
+    // Priority order for the visible status line:
+    //   1. Per-ROM override wins — users want to SEE their override took effect.
+    //   2. Database match — "DB:<platform> <cpf>".
+    //   3. Inference result with confidence if it won.
+    //   4. Fallback for the "couldn't resolve" case.
+    //   5. Auto upgrade messages (older behavior) when none of the above fire.
+    if (resolution.override_applied) {
+        ui_state.setStatusFmt("override  {s} @ {d}Hz", .{ emulation.profileLabel(profile), hz });
+    } else switch (resolution.layer) {
+        .database_match => {
+            ui_state.setStatusFmt("DB:{s}  {d}cpf  @ {d}Hz", .{ resolution.config.platform, resolution.config.tickrate, hz });
+        },
+        .inference => {
+            ui_state.setStatusFmt("inferred:{s}  conf={d:.2}  @ {d}Hz", .{ resolution.config.platform, resolution.confidence, hz });
+        },
+        .fallback => {
+            if (profile_upgraded and speed_upgraded) {
+                ui_state.setStatusFmt("Auto: {s} {d}Hz", .{ emulation.profileLabel(profile), hz });
+            } else if (profile_upgraded) {
+                ui_state.setStatusFmt("Auto profile: {s}", .{emulation.profileLabel(profile)});
+            } else if (speed_upgraded) {
+                ui_state.setStatusFmt("Auto speed: {d}Hz", .{hz});
+            } else {
+                ui_state.setStatusFmt("default:{s}  @ {d}Hz", .{ emulation.profileLabel(profile), hz });
+            }
+        },
+    }
+    // An embedded-title mismatch overrides the layer line — it's a loader
+    // warning the user should see.
+    if (resolution.embedded_title_mismatch != null) {
+        ui_state.setStatusFmt("! embedded title mismatch for {s}", .{display_name});
     }
 
     try app_state.upsertRecentRom(rom_path, display_name, sha1_hex, std.Io.Clock.now(.real, init.io).toMilliseconds());
