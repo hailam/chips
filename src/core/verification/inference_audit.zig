@@ -239,9 +239,22 @@ pub fn gradeInstalled(
     };
 }
 
+// Platform match considers both:
+//   - String identity (strict spec rule).
+//   - Profile equivalence — chip-8-database distinguishes `superchip`
+//     (HP48 1.1) from `superchip1` (HP48 1.0), and `originalChip8` from
+//     `hybridVIP`, but our emulator collapses each group to one internal
+//     `QuirkProfile`. Inference can't tell those apart either, so holding
+//     it to a strict string match grades us on a distinction we don't
+//     model. Anything that would run the same way on our emulator counts
+//     as hitting the same position in the preference list.
 fn classifyPlatform(entry: models.Chip8DbEntry, inferred: []const u8) PlatformVerdict {
+    const inferred_profile = emulation.platformIdToProfile(inferred);
     for (entry.platforms, 0..) |p, i| {
         if (std.mem.eql(u8, p, inferred)) {
+            return if (i == 0) .exact else .acceptable;
+        }
+        if (inferred_profile != null and emulation.platformIdToProfile(p) == inferred_profile.?) {
             return if (i == 0) .exact else .acceptable;
         }
     }
@@ -385,6 +398,31 @@ test "classifyPlatform respects preference order" {
     try std.testing.expectEqual(PlatformVerdict.exact, classifyPlatform(entry, "xochip"));
     try std.testing.expectEqual(PlatformVerdict.acceptable, classifyPlatform(entry, "superchip1"));
     try std.testing.expectEqual(PlatformVerdict.wrong, classifyPlatform(entry, "chip8x"));
+}
+
+test "classifyPlatform treats profile-equivalent platforms as matching" {
+    // `superchip` (HP48 1.1) and `superchip1` (HP48 1.0) both run on our
+    // .schip_11 profile; inference picking either one when the ROM prefers
+    // the other should count as exact, not wrong.
+    const entry = models.Chip8DbEntry{
+        .title = "",
+        .description = "",
+        .release = "",
+        .authors = &.{},
+        .platforms = &[_][]const u8{ "superchip", "xochip" },
+    };
+    try std.testing.expectEqual(PlatformVerdict.exact, classifyPlatform(entry, "superchip1"));
+    try std.testing.expectEqual(PlatformVerdict.acceptable, classifyPlatform(entry, "xochip"));
+
+    // originalChip8 / hybridVIP also map to the same profile.
+    const vip_entry = models.Chip8DbEntry{
+        .title = "",
+        .description = "",
+        .release = "",
+        .authors = &.{},
+        .platforms = &[_][]const u8{"hybridVIP"},
+    };
+    try std.testing.expectEqual(PlatformVerdict.exact, classifyPlatform(vip_entry, "originalChip8"));
 }
 
 test "checkRegression with no baseline returns no_baseline" {

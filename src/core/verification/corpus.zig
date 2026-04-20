@@ -133,8 +133,30 @@ fn runFixtureAxesForRom(
             defer run.allocator.free(quirk_reports);
             for (quirk_reports) |r| try axes.append(run.allocator, r);
         },
-        // Remaining test IDs (beep, scrolling) need dedicated analyzers.
-        else => {},
+        .beep => {
+            // 7-beep's contract is that FX18 sets the sound timer. Its
+            // UI path blocks on FX0A (key press) which never fires in our
+            // headless run, so we deliberately skip the framebuffer check
+            // and grade only on sound-timer activity.
+            const sound_rep = try axis_sound.runForRom(run.allocator, rom_bytes, .{
+                .rom_id = rom.metadata.id,
+            });
+            try axes.append(run.allocator, sound_rep);
+        },
+        .scrolling => {
+            // Exercises the SCHIP scroll opcodes; the surface we can grade
+            // headlessly is the rendered framebuffer.
+            const rep = try axis_opcodes.runFramebufferAxis(run.allocator, rom_bytes, .{
+                .test_id = .scrolling,
+                .rom_id = rom.metadata.id,
+                .axis_name = "display",
+                .profile = .schip_11,
+                .store = run.ref_store,
+                .rom_sha1 = rom.metadata.sha1,
+                .min_lit_pixels = 100,
+            });
+            try axes.append(run.allocator, rep);
+        },
     }
 }
 

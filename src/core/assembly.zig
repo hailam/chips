@@ -152,27 +152,48 @@ pub const InferenceResult = struct {
 // inference audit; callers that only want the profile should stick with
 // inferProfile.
 //
-// Heuristic v2 (tuned against the inference audit):
-//   - XO-CHIP markers are usually unambiguous — one strong marker is enough.
-//   - SCHIP markers are prone to false positives from sprite data that
-//     happens to decode as SCHIP-only opcodes. Require ≥2 markers (or
-//     one unambiguously high-signal one) before classifying as SCHIP.
-//   - With no extension markers, default to originalChip8 (VIP), not
-//     modernChip8 — the chip-8-database classifies most untagged ROMs
-//     as originalChip8, so we agree with the oracle more often.
+// Heuristic v3 (reachability-based):
+//   - Walk the ROM from the entry point following jumps, calls, and skip
+//     branches — BFS over control flow. Only addresses reachable from
+//     0x200 count as code. This sidesteps both major failure modes of the
+//     old linear scan:
+//       * Sprite bytes at the tail of a ROM (e.g. IBM Logo's 0x00 0xFF
+//         rows decoded as HIGH) are unreachable, so they don't vote.
+//       * Real code past a keywait loop (e.g. Timendus 8-scrolling) is
+//         reachable via the initial forward jump, so its SCHIP markers
+//         are counted.
+//   - XO-CHIP markers stay unambiguous — any one strong occurrence wins.
+//   - SCHIP classification requires ≥2 strong markers OR ≥3 total.
+//   - No markers in reachable code → default to originalChip8 (VIP),
+//     matching chip-8-database's classification of most untagged ROMs.
 pub fn inferProfileDetailed(rom_bytes: []const u8) InferenceResult {
     const rom_len = @min(rom_bytes.len, cpu.CHIP8_MEMORY_SIZE - @as(usize, ROM_START));
     var rom_memory = [_]u8{0} ** cpu.CHIP8_MEMORY_SIZE;
     @memcpy(rom_memory[ROM_START .. ROM_START + rom_len], rom_bytes[0..rom_len]);
 
-    var weak_schip_count: u32 = 0; // scroll ops, DXY0 sprites — common in data
-    var strong_schip_count: u32 = 0; // exit/low/high/font/RPL — less common as data
+    // 4096 bytes of CHIP-8 memory → small enough for a stack-allocated
+    // visited bitmap. Avoids depending on an allocator.
+    var visited = [_]bool{false} ** cpu.CHIP8_MEMORY_SIZE;
+    var work: [cpu.CHIP8_MEMORY_SIZE]u16 = undefined;
+    var work_len: usize = 0;
+
+    work[work_len] = ROM_START;
+    work_len += 1;
+
+    var weak_schip_count: u32 = 0;
+    var strong_schip_count: u32 = 0;
     var schip_reason: []const u8 = "";
-    var offset: usize = 0;
-    while (offset + 1 < rom_len) {
-        const addr: u16 = @intCast(ROM_START + offset);
-        const raw_opcode = @as(u16, rom_memory[addr]) << 8 | @as(u16, rom_memory[addr + 1]);
-        if (raw_opcode == 0xF000 and offset + 3 < rom_len) {
+
+    while (work_len > 0) {
+        work_len -= 1;
+        const pc = work[work_len];
+        if (pc >= ROM_START + rom_len) continue;
+        if (pc < ROM_START) continue;
+        if (visited[pc]) continue;
+        visited[pc] = true;
+
+        const raw_opcode = @as(u16, rom_memory[pc]) << 8 | @as(u16, rom_memory[pc + 1]);
+        if (raw_opcode == 0xF000 and pc + 3 < ROM_START + rom_len) {
             return .{
                 .profile = .octo_xo,
                 .confidence = 0.95,
@@ -180,17 +201,7 @@ pub fn inferProfileDetailed(rom_bytes: []const u8) InferenceResult {
                 .platform_id = "xochip",
             };
         }
-        const decoded = cpu.DecodedInstruction.decode(&rom_memory, addr);
-        // Stop scanning past a terminal jump (JP to self / JP backward).
-        // Anything after that is unreachable code — almost always sprite
-        // data. Without this, sprite bytes like `00 FF` trigger false
-        // strong-SCHIP matches (HIGH opcode).
-        if (decoded.instruction == .jmp) {
-            const target = decoded.instruction.jmp;
-            if (target <= addr) {
-                break;
-            }
-        }
+        const decoded = cpu.DecodedInstruction.decode(&rom_memory, pc);
         switch (decoded.instruction) {
             .scu, .save_range, .load_range, .ld_i_long, .plane, .audio, .ld_pitch_vx => {
                 return .{
@@ -216,7 +227,32 @@ pub fn inferProfileDetailed(rom_bytes: []const u8) InferenceResult {
             },
             else => {},
         }
-        offset += decoded.byte_len;
+
+        // Push successor PCs — everything control flow can reach from here.
+        const push = struct {
+            fn f(queue: *[cpu.CHIP8_MEMORY_SIZE]u16, len: *usize, target: u16) void {
+                if (len.* < queue.len) {
+                    queue[len.*] = target;
+                    len.* += 1;
+                }
+            }
+        }.f;
+        switch (decoded.instruction) {
+            .ret, .exit, .unknown => {}, // terminate this path
+            .jmp => |addr| push(&work, &work_len, addr),
+            .call => |addr| {
+                push(&work, &work_len, addr);
+                push(&work, &work_len, pc + decoded.byte_len);
+            },
+            .jmp_v0 => |addr| push(&work, &work_len, addr),
+            // Skip instructions may skip the next instruction or not — add
+            // both branches.
+            .se_byte, .sne_byte, .se_reg, .sne_reg, .skp, .sknp => {
+                push(&work, &work_len, pc + decoded.byte_len);
+                push(&work, &work_len, pc + decoded.byte_len + 2);
+            },
+            else => push(&work, &work_len, pc + decoded.byte_len),
+        }
     }
 
     // Classify as SCHIP only when we have high-confidence evidence.

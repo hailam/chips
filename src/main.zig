@@ -746,6 +746,10 @@ fn loadRomIntoRuntime(
     seedChip8(chip8);
     try chip8.loadRomAt(rom_data, resolution.config.start_address);
 
+    // Apply per-ROM keypad mapping when the oracle supplied one. Clears
+    // otherwise so the previous ROM's mapping doesn't bleed into this one.
+    applyArrowOverridesFromResolution(resolution);
+
     timing_state.* = timing.TimingState.init();
     timing_state.cpu_hz_target = @floatFromInt(hz);
     ui_state.active_save_slot = save_slot;
@@ -797,6 +801,30 @@ fn loadRomIntoRuntime(
         .sha1_hex = sha1_hex,
         .analysis = analysis,
     };
+}
+
+// Push the resolution's `keys.up/down/left/right` into input.zig's
+// module-level arrow-override state. Clears when the oracle didn't supply
+// keys so previous bindings don't leak between loads.
+fn applyArrowOverridesFromResolution(resolution: runtime_check.ConfigResolution) void {
+    const keys = resolution.config.keys orelse {
+        input.clearArrowOverrides();
+        return;
+    };
+    input.setArrowOverrides(.{
+        .up = narrowKey(keys.up),
+        .down = narrowKey(keys.down),
+        .left = narrowKey(keys.left),
+        .right = narrowKey(keys.right),
+    });
+}
+
+// The database schema stores keypad targets as integers, but CHIP-8 only
+// has 16 keys — anything outside [0,15] is malformed data; drop it.
+fn narrowKey(v: ?u8) ?u4 {
+    const n = v orelse return null;
+    if (n > 0xF) return null;
+    return @intCast(n);
 }
 
 // If the ROM path points to a sidecar-carrying installed file, return its
