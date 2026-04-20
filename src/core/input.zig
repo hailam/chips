@@ -24,6 +24,10 @@ const physical_key_map = [_]rl.KeyboardKey{
     .right,
     .left_bracket,
     .right_bracket,
+    // Optional bind targets for the db's `keys.a` / `keys.b` overrides.
+    // They're part of the poll so override lookup can see their state.
+    .space,
+    .left_shift,
 };
 
 // Per-ROM arrow-key overrides. When a chip-8-database match provides
@@ -38,6 +42,8 @@ pub const ArrowOverrides = struct {
     down: ?u4,
     left: ?u4,
     right: ?u4,
+    a: ?u4 = null,
+    b: ?u4 = null,
 };
 
 pub fn setArrowOverrides(next: ArrowOverrides) void {
@@ -45,7 +51,7 @@ pub fn setArrowOverrides(next: ArrowOverrides) void {
 }
 
 pub fn clearArrowOverrides() void {
-    arrow_overrides = .{ .up = null, .down = null, .left = null, .right = null };
+    arrow_overrides = .{ .up = null, .down = null, .left = null, .right = null, .a = null, .b = null };
 }
 
 pub fn pollKeys() [16]bool {
@@ -107,5 +113,13 @@ fn applyArrowOverrides(keys: *[16]bool, pressed: *const [physical_key_map.len]bo
             keys[0x9] = false;
             keys[ch] = true;
         }
+    }
+    // A/B buttons don't have a canonical chip-8 index to clear; just set
+    // the override target when the physical key is down.
+    if (arrow_overrides.a) |ch| {
+        if (pressed[control.physicalKeyIndex(.space)]) keys[ch] = true;
+    }
+    if (arrow_overrides.b) |ch| {
+        if (pressed[control.physicalKeyIndex(.left_shift)]) keys[ch] = true;
     }
 }

@@ -21,6 +21,12 @@ pub const PhysicalKey = enum {
     right,
     left_bracket,
     right_bracket,
+    // Binding targets for chip-8-database's `keys.a` / `keys.b` overrides —
+    // the "confirm" / "cancel" buttons many test ROMs expose. These don't
+    // appear in `canonical_chip8_bindings` (they have no fixed CHIP-8 hex
+    // position), only in the runtime override path in input.zig.
+    space,
+    left_shift,
 };
 
 pub const Chip8Binding = struct {

@@ -851,6 +851,8 @@ fn applyArrowOverridesFromResolution(resolution: runtime_check.ConfigResolution)
         .down = narrowKey(keys.down),
         .left = narrowKey(keys.left),
         .right = narrowKey(keys.right),
+        .a = narrowKey(keys.a),
+        .b = narrowKey(keys.b),
     });
 }
 
