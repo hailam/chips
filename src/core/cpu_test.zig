@@ -16,6 +16,7 @@ const trace = @import("trace.zig");
 // reachable files, so a single @import is enough to include them.
 comptime {
     _ = @import("url.zig");
+    _ = @import("registry_models.zig");
     _ = @import("spec.zig");
     _ = @import("state.zig");
     _ = @import("verification/oracle/spec.zig");
@@ -470,10 +471,10 @@ test "Timing speed action uses hz step and clamps to runtime bounds" {
 
 test "Timing startup defaults scale with profile and upgrade legacy 600hz saves" {
     try std.testing.expectEqual(@as(i32, timing.CPU_HZ_DEFAULT), timing.defaultCpuHzForProfile(.modern));
-    try std.testing.expectEqual(@as(i32, timing.CPU_HZ_SCHIP_DEFAULT), timing.defaultCpuHzForProfile(.schip_11));
+    try std.testing.expectEqual(@as(i32, timing.CPU_HZ_SCHIP_DEFAULT), timing.defaultCpuHzForProfile(.schip_modern));
     try std.testing.expectEqual(@as(i32, timing.CPU_HZ_XO_DEFAULT), timing.defaultCpuHzForProfile(.octo_xo));
 
-    try std.testing.expectEqual(@as(i32, timing.CPU_HZ_SCHIP_DEFAULT), timing.preferredStartupCpuHz(null, .schip_11));
+    try std.testing.expectEqual(@as(i32, timing.CPU_HZ_SCHIP_DEFAULT), timing.preferredStartupCpuHz(null, .schip_modern));
     try std.testing.expectEqual(@as(i32, timing.CPU_HZ_XO_DEFAULT), timing.preferredStartupCpuHz(@as(i32, timing.CPU_HZ_DEFAULT), .octo_xo));
     try std.testing.expectEqual(@as(i32, 1800), timing.preferredStartupCpuHz(1800, .octo_xo));
 }
@@ -513,26 +514,36 @@ test "Emulation profiles expose expected quirk flags" {
     // assertions also serve as a cheap regression check against it.
     const modern = emulation.profileQuirks(.modern);
     try std.testing.expect(modern.shift_uses_vy);
-    try std.testing.expect(modern.load_store_increment_i);
+    try std.testing.expectEqual(emulation.MemoryIncrement.increment_full, modern.memory_increment);
     try std.testing.expect(!modern.logic_ops_clear_vf);
     try std.testing.expect(!modern.draw_wrap);
     try std.testing.expect(!modern.jump_uses_vx);
 
     const vip = emulation.profileQuirks(.vip_legacy);
     try std.testing.expect(vip.shift_uses_vy);
-    try std.testing.expect(vip.load_store_increment_i);
+    try std.testing.expectEqual(emulation.MemoryIncrement.increment_full, vip.memory_increment);
     try std.testing.expect(vip.logic_ops_clear_vf);
     try std.testing.expect(!vip.draw_wrap);
     try std.testing.expect(!vip.jump_uses_vx);
 
-    const schip = emulation.profileQuirks(.schip_11);
+    const chip48 = emulation.profileQuirks(.chip48);
+    try std.testing.expectEqual(emulation.MemoryIncrement.increment_by_x, chip48.memory_increment);
+    try std.testing.expect(!chip48.supports_hires);
+
+    const schip_legacy = emulation.profileQuirks(.schip_legacy);
+    try std.testing.expectEqual(emulation.MemoryIncrement.increment_by_x, schip_legacy.memory_increment);
+    try std.testing.expect(schip_legacy.supports_hires);
+
+    const schip = emulation.profileQuirks(.schip_modern);
     try std.testing.expect(!schip.shift_uses_vy);
+    try std.testing.expectEqual(emulation.MemoryIncrement.leave_i_unchanged, schip.memory_increment);
     try std.testing.expect(!schip.logic_ops_clear_vf);
     try std.testing.expect(!schip.draw_wrap);
     try std.testing.expect(schip.jump_uses_vx);
 
     const xo = emulation.profileQuirks(.xo_chip);
     try std.testing.expect(xo.shift_uses_vy);
+    try std.testing.expectEqual(emulation.MemoryIncrement.increment_full, xo.memory_increment);
     try std.testing.expect(!xo.logic_ops_clear_vf);
     try std.testing.expect(xo.draw_wrap);
     try std.testing.expect(!xo.jump_uses_vx);
@@ -1018,4 +1029,127 @@ fn traceContainsMicroOp(entry: debugger.TraceEntry, kind: debugger.MicroOpKind) 
 
 fn execModern(c: *cpu.CPU, memory: *[cpu.CHIP8_MEMORY_SIZE]u8) !void {
     try c.executeInstruction(memory, emulation.profileQuirks(.modern));
+}
+
+test "vblank_wait defers the second DRW in a frame" {
+    var c = cpu.CPU.init();
+    var memory = [_]u8{0} ** cpu.CHIP8_MEMORY_SIZE;
+
+    // Program at 0x200: DRW V0,V0,1 ; DRW V0,V0,1 ; halt
+    c.program_counter = 0x200;
+    memory[0x200] = 0xD0;
+    memory[0x201] = 0x01;
+    memory[0x202] = 0xD0;
+    memory[0x203] = 0x01;
+    memory[0x300] = 0xFF; // sprite bytes (I defaults to 0)
+
+    const vip = emulation.profileQuirks(.vip_legacy);
+    try std.testing.expect(vip.vblank_wait);
+
+    // First DRW — succeeds, PC advances past it.
+    try c.executeInstruction(&memory, vip);
+    try std.testing.expectEqual(@as(u16, 0x202), c.program_counter);
+    try std.testing.expect(c.drew_this_frame);
+    try std.testing.expect(!c.draw_stalled);
+
+    // Second DRW in the same frame — gated. PC stays at the instruction
+    // so it will retry; draw_stalled asks the host loop to break.
+    try c.executeInstruction(&memory, vip);
+    try std.testing.expectEqual(@as(u16, 0x202), c.program_counter);
+    try std.testing.expect(c.draw_stalled);
+
+    // Simulating a 60Hz frame tick releases the gate; next execute runs.
+    var chip = chip8_mod.Chip8.initWithConfig(.{ .quirk_profile = .vip_legacy, .quirks = vip });
+    chip.cpu = c;
+    chip.tickTimers();
+    try std.testing.expect(!chip.cpu.drew_this_frame);
+    try std.testing.expect(!chip.cpu.draw_stalled);
+
+    try chip.cpu.executeInstruction(&memory, vip);
+    try std.testing.expectEqual(@as(u16, 0x204), chip.cpu.program_counter);
+    try std.testing.expect(chip.cpu.drew_this_frame);
+}
+
+test "FX55 honors the 3-state memory_increment policy" {
+    // FX55 stores V0..VX at [I..], with three possible post-I behaviors.
+    // Use VX=3 (count = 4) so increment_full lands I+=4 and increment_by_x
+    // lands I+=3, distinguishing them.
+    const cases = .{
+        .{ .inc = emulation.MemoryIncrement.increment_full, .expected_i = 0x304 },
+        .{ .inc = emulation.MemoryIncrement.increment_by_x, .expected_i = 0x303 },
+        .{ .inc = emulation.MemoryIncrement.leave_i_unchanged, .expected_i = 0x300 },
+    };
+    inline for (cases) |tc| {
+        var c = cpu.CPU.init();
+        var memory = [_]u8{0} ** cpu.CHIP8_MEMORY_SIZE;
+        c.registers[0] = 0xAA;
+        c.registers[1] = 0xBB;
+        c.registers[2] = 0xCC;
+        c.registers[3] = 0xDD;
+        c.index_register = 0x300;
+        c.program_counter = 0x200;
+        memory[0x200] = 0xF3; // FX55 with X=3
+        memory[0x201] = 0x55;
+
+        var quirks = emulation.profileQuirks(.modern);
+        quirks.memory_increment = tc.inc;
+        try c.executeInstruction(&memory, quirks);
+
+        try std.testing.expectEqual(@as(u16, tc.expected_i), c.index_register);
+        try std.testing.expectEqual(@as(u8, 0xAA), memory[0x300]);
+        try std.testing.expectEqual(@as(u8, 0xDD), memory[0x303]);
+    }
+}
+
+test "XO-CHIP profile allows stack depth beyond legacy 16" {
+    var c = cpu.CPU.init();
+    var memory = [_]u8{0} ** cpu.CHIP8_MEMORY_SIZE;
+
+    const xo = emulation.profileQuirks(.xo_chip);
+    const legacy = emulation.profileQuirks(.schip_modern);
+
+    // CALL 0x200 self-recurses so each execute pushes one frame.
+    c.program_counter = 0x200;
+    memory[0x200] = 0x22;
+    memory[0x201] = 0x00;
+
+    // Legacy cap is 16 — the 17th CALL must trap.
+    var legacy_cpu = c;
+    var i: usize = 0;
+    while (i < 16) : (i += 1) {
+        try legacy_cpu.executeInstruction(&memory, legacy);
+        legacy_cpu.program_counter = 0x200; // keep the opcode under fetch
+    }
+    const legacy_trap = legacy_cpu.executeInstruction(&memory, legacy);
+    try std.testing.expectError(error.CpuTrapped, legacy_trap);
+    try std.testing.expect(legacy_cpu.trap_reason != null);
+
+    // XO-CHIP cap is 64 — 17 calls must still succeed.
+    var xo_cpu = c;
+    i = 0;
+    while (i < 17) : (i += 1) {
+        try xo_cpu.executeInstruction(&memory, xo);
+        xo_cpu.program_counter = 0x200;
+    }
+    try std.testing.expect(xo_cpu.trap_reason == null);
+    try std.testing.expectEqual(@as(u16, 17), xo_cpu.stack_pointer);
+}
+
+test "vblank_wait off lets DRWs chain freely" {
+    var c = cpu.CPU.init();
+    var memory = [_]u8{0} ** cpu.CHIP8_MEMORY_SIZE;
+    c.program_counter = 0x200;
+    memory[0x200] = 0xD0;
+    memory[0x201] = 0x01;
+    memory[0x202] = 0xD0;
+    memory[0x203] = 0x01;
+    memory[0x300] = 0xFF;
+
+    const modern = emulation.profileQuirks(.modern);
+    try std.testing.expect(!modern.vblank_wait);
+
+    try c.executeInstruction(&memory, modern);
+    try c.executeInstruction(&memory, modern);
+    try std.testing.expectEqual(@as(u16, 0x204), c.program_counter);
+    try std.testing.expect(!c.draw_stalled);
 }

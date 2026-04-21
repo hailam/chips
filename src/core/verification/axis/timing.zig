@@ -380,7 +380,7 @@ fn checkDxy0WidthScaling(
 ) !void {
     var c = chip8_mod.Chip8.init();
     // Force SCHIP-style hires so DXY0 actually produces a 16x16 sprite.
-    const schip = emulation.profileQuirks(.schip_11);
+    const schip = emulation.profileQuirks(.schip_modern);
     c.cpu.display_mode = .hires;
     c.cpu.program_counter = 0x200;
     c.memory[0x200] = 0xD0;

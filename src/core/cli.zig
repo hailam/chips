@@ -385,7 +385,7 @@ pub fn buildEditorGotoTargetAlloc(allocator: std.mem.Allocator, path: []const u8
 pub fn usage() []const u8 {
     return
         \\Usage:
-        \\  chip8 run [rom.ch8] [--profile modern|vip_legacy|schip_11|xo_chip|octo_xo]
+        \\  chip8 run [rom.ch8] [--profile modern|vip_legacy|chip48|schip_legacy|schip_modern|xo_chip|octo_xo]
         \\  chip8 <rom.ch8> [--profile ...]
         \\  chip8 disasm <rom.ch8> [-o output.asm] [--profile ...]
         \\  chip8 asm <source.asm> [-o output.ch8]

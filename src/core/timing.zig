@@ -69,8 +69,8 @@ pub fn applySpeedAction(current_hz: i32, action: control.SpeedAction) i32 {
 
 pub fn defaultCpuHzForProfile(profile: emulation.QuirkProfile) i32 {
     return switch (profile) {
-        .modern, .vip_legacy => CPU_HZ_DEFAULT,
-        .schip_11 => CPU_HZ_SCHIP_DEFAULT,
+        .modern, .vip_legacy, .chip48 => CPU_HZ_DEFAULT,
+        .schip_legacy, .schip_modern => CPU_HZ_SCHIP_DEFAULT,
         .xo_chip, .octo_xo => CPU_HZ_XO_DEFAULT,
     };
 }

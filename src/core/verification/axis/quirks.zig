@@ -33,9 +33,9 @@ pub const PlatformRun = struct {
 
 pub const PLATFORM_RUNS: []const PlatformRun = &.{
     .{ .code = 1, .platform_id = "originalChip8", .profile = .vip_legacy },
-    .{ .code = 2, .platform_id = "superchip", .profile = .schip_11 },
+    .{ .code = 2, .platform_id = "superchip", .profile = .schip_modern },
     .{ .code = 3, .platform_id = "xochip", .profile = .xo_chip },
-    .{ .code = 4, .platform_id = "superchip1", .profile = .schip_11 },
+    .{ .code = 4, .platform_id = "superchip1", .profile = .schip_legacy },
 };
 
 pub const RunOptions = struct {

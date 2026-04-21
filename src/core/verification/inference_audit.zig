@@ -102,9 +102,10 @@ const TrackedQuirk = struct {
     extract_ours: *const fn (q: emulation.QuirkFlags) bool,
 };
 
-// Quirks our QuirkFlags model cleanly enough to grade. Non-mapped quirks
-// (memoryLeaveIUnchanged, memoryIncrementByX, vblank) are intentionally
-// omitted until the emulator grows matching flags.
+// All 7 canonical chip-8-database quirks are now modeled at the emulator
+// level (Phases 4 and 5 filled in memoryIncrementByX / memoryLeaveIUnchanged
+// via the 3-state memory_increment enum and added vblank_wait). Grading
+// covers every flag — any future upstream addition should land here too.
 const TRACKED_QUIRKS = [_]TrackedQuirk{
     .{
         .name = "shift",
@@ -157,6 +158,45 @@ const TRACKED_QUIRKS = [_]TrackedQuirk{
         .extract_ours = struct {
             fn f(q: emulation.QuirkFlags) bool {
                 return q.logic_ops_clear_vf;
+            }
+        }.f,
+    },
+    .{
+        .name = "vblank",
+        .extract_db = struct {
+            fn f(q: spec.Quirks) bool {
+                return q.vblank;
+            }
+        }.f,
+        .extract_ours = struct {
+            fn f(q: emulation.QuirkFlags) bool {
+                return q.vblank_wait;
+            }
+        }.f,
+    },
+    .{
+        .name = "memoryIncrementByX",
+        .extract_db = struct {
+            fn f(q: spec.Quirks) bool {
+                return q.memoryIncrementByX;
+            }
+        }.f,
+        .extract_ours = struct {
+            fn f(q: emulation.QuirkFlags) bool {
+                return q.memory_increment == .increment_by_x;
+            }
+        }.f,
+    },
+    .{
+        .name = "memoryLeaveIUnchanged",
+        .extract_db = struct {
+            fn f(q: spec.Quirks) bool {
+                return q.memoryLeaveIUnchanged;
+            }
+        }.f,
+        .extract_ours = struct {
+            fn f(q: emulation.QuirkFlags) bool {
+                return q.memory_increment == .leave_i_unchanged;
             }
         }.f,
     },
@@ -401,9 +441,10 @@ test "classifyPlatform respects preference order" {
 }
 
 test "classifyPlatform treats profile-equivalent platforms as matching" {
-    // `superchip` (HP48 1.1) and `superchip1` (HP48 1.0) both run on our
-    // .schip_11 profile; inference picking either one when the ROM prefers
-    // the other should count as exact, not wrong.
+    // `superchip` (modern) and `superchip1` (HP48 1.0/1.1) now map to distinct
+    // profiles per the audit — they have different post-I semantics, so an
+    // inference picking one when the ROM prefers the other must NOT count as
+    // exact.
     const entry = models.Chip8DbEntry{
         .title = "",
         .description = "",
@@ -411,10 +452,11 @@ test "classifyPlatform treats profile-equivalent platforms as matching" {
         .authors = &.{},
         .platforms = &[_][]const u8{ "superchip", "xochip" },
     };
-    try std.testing.expectEqual(PlatformVerdict.exact, classifyPlatform(entry, "superchip1"));
+    try std.testing.expectEqual(PlatformVerdict.wrong, classifyPlatform(entry, "superchip1"));
     try std.testing.expectEqual(PlatformVerdict.acceptable, classifyPlatform(entry, "xochip"));
 
-    // originalChip8 / hybridVIP also map to the same profile.
+    // originalChip8 / hybridVIP still share the vip_legacy profile — those
+    // are genuinely interchangeable at our level of modeling.
     const vip_entry = models.Chip8DbEntry{
         .title = "",
         .description = "",

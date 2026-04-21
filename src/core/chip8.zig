@@ -78,6 +78,12 @@ pub const Chip8 = struct {
         if (self.cpu.delay_timer > 0) self.cpu.delay_timer -= 1;
         if (self.cpu.sound_timer > 0) self.cpu.sound_timer -= 1;
         self.cpu.frame_count +%= 1;
+        // tickTimers runs at 60 Hz — treat every call as a vblank boundary.
+        // This lets any DRW deferred by the vblank_wait quirk retry in the
+        // next frame. Clear both flags together so a deferred draw that
+        // retries this cycle isn't mis-flagged as stalled.
+        self.cpu.drew_this_frame = false;
+        self.cpu.draw_stalled = false;
     }
 
     pub fn reset(self: *Chip8) void {
@@ -113,9 +119,9 @@ pub const Chip8 = struct {
     pub fn writeSaveState(writer: *std.Io.Writer, state: *const SaveState) !void {
         try CPU.writeSaveState(writer, &state.cpu);
         try writer.writeAll(&state.memory);
-        try writer.writeByte(@intFromEnum(state.config.quirk_profile));
+        try writer.writeByte(emulation.profileToByte(state.config.quirk_profile));
         try writer.writeByte(if (state.config.quirks.shift_uses_vy) 1 else 0);
-        try writer.writeByte(if (state.config.quirks.load_store_increment_i) 1 else 0);
+        try writer.writeByte(@intFromEnum(state.config.quirks.memory_increment));
         try writer.writeByte(if (state.config.quirks.logic_ops_clear_vf) 1 else 0);
         try writer.writeByte(if (state.config.quirks.draw_wrap) 1 else 0);
         try writer.writeByte(if (state.config.quirks.jump_uses_vx) 1 else 0);
@@ -127,6 +133,7 @@ pub const Chip8 = struct {
         try writer.writeByte(if (state.config.quirks.fx30_large_font_hex) 1 else 0);
         try writer.writeByte(if (state.config.quirks.draw_vf_rowcount_in_hires) 1 else 0);
         try writer.writeByte(state.config.quirks.max_rpl);
+        try writer.writeByte(if (state.config.quirks.vblank_wait) 1 else 0);
         try writer.writeInt(u16, state.rom_size, .little);
     }
 
@@ -139,7 +146,12 @@ pub const Chip8 = struct {
             .quirk_profile = emulation.profileFromByte(profile_byte) orelse return error.InvalidSaveStateProfile,
             .quirks = .{
                 .shift_uses_vy = (try reader.takeByte()) != 0,
-                .load_store_increment_i = (try reader.takeByte()) != 0,
+                .memory_increment = switch (try reader.takeByte()) {
+                    0 => .increment_full,
+                    1 => .increment_by_x,
+                    2 => .leave_i_unchanged,
+                    else => return error.InvalidSaveStateProfile,
+                },
                 .logic_ops_clear_vf = (try reader.takeByte()) != 0,
                 .draw_wrap = (try reader.takeByte()) != 0,
                 .jump_uses_vx = (try reader.takeByte()) != 0,
@@ -151,6 +163,7 @@ pub const Chip8 = struct {
                 .fx30_large_font_hex = (try reader.takeByte()) != 0,
                 .draw_vf_rowcount_in_hires = (try reader.takeByte()) != 0,
                 .max_rpl = try reader.takeByte(),
+                .vblank_wait = (try reader.takeByte()) != 0,
             },
         };
         state.rom_size = try reader.takeInt(u16, .little);

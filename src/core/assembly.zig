@@ -36,6 +36,10 @@ pub const ExportMeta = struct {
     rom_name: []const u8,
     sha1_hex: []const u8,
     profile: emulation.QuirkProfile,
+    // Defaults to the standard 0x200 entry point; ETI-660 ROMs and other
+    // non-default layouts override to 0x600 (or whatever the database /
+    // sidecar specified).
+    start_address: u16 = ROM_START,
 };
 
 pub const ExportSourceResult = struct {
@@ -264,7 +268,7 @@ pub fn inferProfileDetailed(rom_bytes: []const u8) InferenceResult {
     const schip_confident = strong_schip_count >= 2 or schip_signal >= 3;
     if (schip_confident) {
         return .{
-            .profile = .schip_11,
+            .profile = .schip_legacy,
             .confidence = if (strong_schip_count >= 2) 0.85 else 0.7,
             .reasoning = schip_reason,
             .platform_id = "superchip1",
@@ -362,12 +366,13 @@ pub fn exportAnnotatedSource(
     meta: ExportMeta,
     rom_bytes: []const u8,
 ) !ExportSourceResult {
-    const max_rom_len: usize = cpu.CHIP8_MEMORY_SIZE - @as(usize, ROM_START);
+    const start: usize = meta.start_address;
+    const max_rom_len: usize = cpu.CHIP8_MEMORY_SIZE - start;
     const limited_rom = rom_bytes[0..@min(rom_bytes.len, max_rom_len)];
     const analysis = analyzeRomForProfile(meta.profile, limited_rom);
     var line_map = [_]u32{0} ** cpu.CHIP8_MEMORY_SIZE;
     var rom_memory = [_]u8{0} ** cpu.CHIP8_MEMORY_SIZE;
-    @memcpy(rom_memory[ROM_START .. ROM_START + limited_rom.len], limited_rom);
+    @memcpy(rom_memory[start .. start + limited_rom.len], limited_rom);
 
     var writer: std.Io.Writer.Allocating = .init(allocator);
     defer writer.deinit();
@@ -378,12 +383,12 @@ pub fn exportAnnotatedSource(
     try appendLine(&writer.writer, &line_no, "; Dialect: {s}\n", .{profileName(meta.profile)});
     try appendLine(&writer.writer, &line_no, "; CHIP-8 syntax: VX/VY registers, N nibble, KK byte, NNN address\n", .{});
     try appendLine(&writer.writer, &line_no, "; Assembly is authoritative; right-side comments are inferred pseudocode.\n", .{});
-    try appendLine(&writer.writer, &line_no, "ORG 0x200\n", .{});
+    try appendLine(&writer.writer, &line_no, "ORG 0x{X:0>3}\n", .{start});
     try appendLine(&writer.writer, &line_no, "\n", .{});
 
     var offset: usize = 0;
     while (offset < limited_rom.len) {
-        const addr: u16 = @intCast(ROM_START + offset);
+        const addr: u16 = @intCast(start + offset);
         if (analysis.hasLabel(addr)) {
             var label_buf: [16]u8 = undefined;
             try appendLine(&writer.writer, &line_no, "{s}:\n", .{labelName(addr, &label_buf)});
@@ -1175,8 +1180,28 @@ fn profileName(profile: emulation.QuirkProfile) []const u8 {
     return switch (profile) {
         .modern => "modern",
         .vip_legacy => "vip_legacy",
-        .schip_11 => "schip_11",
+        .chip48 => "chip48",
+        .schip_legacy => "schip_legacy",
+        .schip_modern => "schip_modern",
         .xo_chip => "xo_chip",
         .octo_xo => "octo_xo",
     };
+}
+
+test "exportAnnotatedSource honors non-default start_address" {
+    const allocator = std.testing.allocator;
+    const rom = [_]u8{ 0x12, 0x00 }; // JP 0x200, content doesn't matter for the header check
+    var result = try exportAnnotatedSource(allocator, .{
+        .rom_name = "eti660.ch8",
+        .sha1_hex = "deadbeef",
+        .profile = .vip_legacy,
+        .start_address = 0x600,
+    }, &rom);
+    defer result.deinit(allocator);
+
+    // The ORG directive must reflect the requested start; the per-instruction
+    // address comments must be anchored there too.
+    try std.testing.expect(std.mem.indexOf(u8, result.source, "ORG 0x600") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result.source, "@0600") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result.source, "ORG 0x200") == null);
 }

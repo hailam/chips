@@ -43,12 +43,18 @@ const LoadedRom = struct {
     sha1: [20]u8,
     sha1_hex: []u8,
     analysis: assembly.RomAnalysis,
+    // Mirror of the resolved start_address / font_style so reload/reset,
+    // disasm, and source export don't silently drop them back to 0x200 /
+    // default font. Owned by this struct when non-null.
+    start_address: u16,
+    font_style: ?[]u8,
 
     fn deinit(self: *LoadedRom, allocator: std.mem.Allocator) void {
         allocator.free(self.path);
         allocator.free(self.display_name);
         allocator.free(self.data);
         allocator.free(self.sha1_hex);
+        if (self.font_style) |f| allocator.free(f);
         self.* = undefined;
     }
 };
@@ -473,7 +479,11 @@ fn runGui(init: std.process.Init, initial_rom_path: ?[]const u8, requested_profi
         }
 
         if (chip8.cpu.waiting_for_key) {
-            if (input.firstPressedKey(just_pressed_keys) orelse input.firstPressedKey(held_keys)) |pressed_key| {
+            // FX0A on VIP/Octo resumes on a new press transition, not on a
+            // key that was already held when the instruction began. The
+            // previous held-key fallback caused games to spuriously resume
+            // on whatever the user had down at the time.
+            if (input.firstPressedKey(just_pressed_keys)) |pressed_key| {
                 chip8.cpu.registers[chip8.cpu.key_register] = pressed_key;
                 chip8.cpu.waiting_for_key = false;
                 chip8.cpu.program_counter += 2;
@@ -485,7 +495,11 @@ fn runGui(init: std.process.Init, initial_rom_path: ?[]const u8, requested_profi
             const step_result = timing.advance(&timing_state, rl.getFrameTime());
             const cycle_budget: usize = if (state == .stepping) 1 else step_result.cpu_cycles;
 
-            if (state == .running) {
+            // FX0A is a blocking instruction on both VIP and XO-CHIP spec:
+            // delay/sound timers must NOT continue ticking while the CPU is
+            // parked waiting for a keypress. Previously this ticked timers
+            // unconditionally, which let sound cues expire during a pause.
+            if (state == .running and !chip8.cpu.waiting_for_key) {
                 for (0..step_result.timer_ticks) |_| chip8.tickTimers();
             }
 
@@ -501,6 +515,10 @@ fn runGui(init: std.process.Init, initial_rom_path: ?[]const u8, requested_profi
                     break;
                 }
                 if (chip8.cpu.waiting_for_key) break;
+                // vblank_wait: DRW stalled until the next 60Hz frame. The
+                // cycle budget is already spent — drop out and let the
+                // outer loop roll around so tickTimers can release it.
+                if (chip8.cpu.draw_stalled) break;
 
                 chip8.update() catch |err| switch (err) {
                     error.CpuTrapped => {
@@ -727,10 +745,23 @@ fn loadRomIntoRuntime(
     // full resolved bundle so database `quirkyPlatforms` overrides actually
     // reach the CPU. Non-db QuirkFlags (hires, xo support, rpl depth, etc.)
     // stay at the profile's defaults.
+    //
+    // If the resolution targets a platform we don't simulate (chip8x,
+    // megachip8), refuse to run rather than silently coercing to .modern.
+    // Users can still force a profile with --profile to bypass the reject.
     const emulation_config = if (requested_profile != null)
         emulation.EmulationConfig.init(profile)
     else
-        runtime_check.emulationConfigFromResolution(resolution);
+        runtime_check.emulationConfigFromResolution(resolution) catch |err| switch (err) {
+            error.UnsupportedPlatform => {
+                std.debug.print(
+                    "error: platform '{s}' is not supported by this build.\n" ++
+                        "       Re-run with --profile <modern|vip|schip|xo|octo> to force a profile.\n",
+                    .{resolution.config.platform},
+                );
+                return error.UnsupportedPlatform;
+            },
+        };
 
     // CPU speed: db tickrate (cycles per frame at 60Hz) wins over the
     // inferred profile default, unless the user has a saved preference for
@@ -800,6 +831,12 @@ fn loadRomIntoRuntime(
     try app_state.upsertRomPreference(sha1_hex, rom_path, chip8.config.quirk_profile, hz, ui_state.active_save_slot);
     try persistence.saveAppState(init.io, init.gpa, app_data_root, app_state);
 
+    const font_style_owned = if (resolution.config.font_style) |f|
+        try init.gpa.dupe(u8, f)
+    else
+        null;
+    errdefer if (font_style_owned) |f| init.gpa.free(f);
+
     return .{
         .path = path_copy,
         .display_name = display_name,
@@ -807,6 +844,8 @@ fn loadRomIntoRuntime(
         .sha1 = sha1,
         .sha1_hex = sha1_hex,
         .analysis = analysis,
+        .start_address = resolution.config.start_address,
+        .font_style = font_style_owned,
     };
 }
 
@@ -953,16 +992,25 @@ fn preferredProfile(saved: emulation.QuirkProfile, inferred: emulation.QuirkProf
 fn profileRank(profile: emulation.QuirkProfile) u8 {
     return switch (profile) {
         .modern, .vip_legacy => 0,
-        .schip_11 => 1,
-        .xo_chip => 2,
-        .octo_xo => 3,
+        .chip48 => 1,
+        .schip_legacy, .schip_modern => 2,
+        .xo_chip => 3,
+        .octo_xo => 4,
     };
 }
 
 fn reloadLoadedRom(chip8: *Chip8, loaded_rom: LoadedRom, config: emulation.EmulationConfig) !void {
-    chip8.* = Chip8.initWithConfig(config);
+    // Preserve the resolved font variant and start address across reload.
+    // Previously this reinitialized with the default font and loaded the
+    // ROM at hardcoded 0x200, silently dropping ETI-660 layouts and any
+    // platform-specific font (vip/dream6800/etc.) on every reset.
+    const style: fonts.FontStyle = if (loaded_rom.font_style) |name|
+        fonts.FontStyle.fromString(name) orelse fonts.default_style
+    else
+        fonts.default_style;
+    chip8.* = Chip8.initWithConfigAndFont(config, style);
     seedChip8(chip8);
-    try chip8.loadRom(loaded_rom.data);
+    try chip8.loadRomAt(loaded_rom.data, loaded_rom.start_address);
 }
 
 fn saveCurrentSlot(
@@ -1068,6 +1116,7 @@ fn exportCurrentSource(
         .rom_name = loaded_rom.display_name,
         .sha1_hex = loaded_rom.sha1_hex,
         .profile = chip8.config.quirk_profile,
+        .start_address = loaded_rom.start_address,
     }, loaded_rom.data);
     defer exported.deinit(init.gpa);
 
@@ -1076,7 +1125,7 @@ fn exportCurrentSource(
         .data = exported.source,
     });
 
-    const goto_line = exported.lineForAddress(chip8.cpu.program_counter) orelse exported.lineForAddress(assembly.ROM_START) orelse 1;
+    const goto_line = exported.lineForAddress(chip8.cpu.program_counter) orelse exported.lineForAddress(loaded_rom.start_address) orelse 1;
     if (try isVsCodeAvailable(init)) {
         try openInVsCode(init, export_path, goto_line);
         ui_state.setStatusFmt("Opened source in VS Code: {s}", .{export_path});
@@ -1571,18 +1620,55 @@ fn runVerifyTest(init: std.process.Init, test_id_str: []const u8, rom_path_opt: 
     var store = ref_fb_mod.load(init.io, init.gpa, app_data_root) catch ref_fb_mod.Store{ .allocator = init.gpa };
     defer store.deinit();
 
-    // For now every test ID routes through the opcodes-style runner. When we
-    // grow more axes this should dispatch to per-test analyzers instead.
-    const rep = try axis_opcodes.runCoraxPlus(init.gpa, rom_bytes, .{
-        .rom_id = test_id.displayName(),
-        .reference_hash = reference,
-        .store = &store,
-        .rom_sha1 = sha1_hex,
-    });
-    defer rep.deinit(init.gpa);
-
-    try emitAxisReportOut(init, rep, json);
-    if (rep.verdict == .fail or rep.verdict == .harness_error) std.process.exit(1);
+    // Per-test dispatch: each Timendus test targets a different behavior
+    // class, so route to the axis that actually grades that class. Falling
+    // through to the framebuffer runner is the default for display-heavy
+    // tests; tests that have a dedicated axis use it.
+    switch (test_id) {
+        .quirks => {
+            const reports = try axis_quirks.runForRom(init.gpa, rom_bytes, .{
+                .store = &store,
+                .rom_sha1 = sha1_hex,
+                .rom_id = test_id.displayName(),
+            });
+            defer {
+                for (reports) |r| r.deinit(init.gpa);
+                init.gpa.free(reports);
+            }
+            var worst: verify_report.Verdict = .pass;
+            for (reports) |r| {
+                try emitAxisReportOut(init, r, json);
+                if (r.verdict == .harness_error) worst = .harness_error;
+                if (r.verdict == .fail and worst != .harness_error) worst = .fail;
+            }
+            if (worst == .fail or worst == .harness_error) std.process.exit(1);
+            return;
+        },
+        .beep => {
+            const rep = try axis_sound.runForRom(init.gpa, rom_bytes, .{
+                .rom_id = test_id.displayName(),
+            });
+            defer rep.deinit(init.gpa);
+            try emitAxisReportOut(init, rep, json);
+            if (rep.verdict == .fail or rep.verdict == .harness_error) std.process.exit(1);
+            return;
+        },
+        .chip8_logo, .ibm_logo, .corax_plus, .flags, .scrolling => {
+            const rep = try axis_opcodes.runFramebufferAxis(init.gpa, rom_bytes, .{
+                .test_id = test_id,
+                .rom_id = test_id.displayName(),
+                .axis_name = if (test_id == .scrolling) "display" else "opcodes",
+                .reference_hash = reference,
+                .store = &store,
+                .rom_sha1 = sha1_hex,
+                .min_lit_pixels = if (test_id == .scrolling) 100 else 0,
+            });
+            defer rep.deinit(init.gpa);
+            try emitAxisReportOut(init, rep, json);
+            if (rep.verdict == .fail or rep.verdict == .harness_error) std.process.exit(1);
+            return;
+        },
+    }
 }
 
 // Look for a Timendus test ROM that the user has installed. Matches either
@@ -2124,10 +2210,35 @@ fn runDisasmCommand(init: std.process.Init, rom_path: []const u8, output_path: ?
     const sha_hex = try persistence.sha1HexAlloc(init.gpa, sha);
     defer init.gpa.free(sha_hex);
 
+    // Consult the resolver (database + sidecar + inference) so ETI-660-style
+    // ROMs disassemble under their real start address rather than 0x200.
+    const app_data_root = try persistence.defaultAppDataRootAlloc(init.gpa, init.minimal.environ);
+    defer init.gpa.free(app_data_root);
+
+    var db_cache = try chip8_db_cache.load(init.io, init.gpa, app_data_root);
+    defer db_cache.deinit();
+
+    const sidecar_override = try loadSidecarOverrideAlloc(init.io, init.gpa, app_data_root, rom_path);
+    defer if (sidecar_override) |o| o.deinit(init.gpa);
+
+    const config = try config_mod.loadConfig(init.io, init.gpa, app_data_root);
+    defer config.deinit(init.gpa);
+
+    const resolution = try runtime_check.resolveConfigForRom(
+        init.gpa,
+        rom_data,
+        requested_profile,
+        sidecar_override,
+        &db_cache,
+        config.auto_apply_db_config,
+    );
+    defer resolution.deinit(init.gpa);
+
     var exported = try assembly.exportAnnotatedSource(init.gpa, .{
         .rom_name = persistence.basename(rom_path),
         .sha1_hex = sha_hex,
         .profile = requested_profile orelse assembly.inferProfile(rom_data),
+        .start_address = resolution.config.start_address,
     }, rom_data);
     defer exported.deinit(init.gpa);
 
@@ -2202,8 +2313,10 @@ fn isCallOpcode(opcode: u16) bool {
 fn cycleProfile(profile: emulation.QuirkProfile) emulation.QuirkProfile {
     return switch (profile) {
         .modern => .vip_legacy,
-        .vip_legacy => .schip_11,
-        .schip_11 => .xo_chip,
+        .vip_legacy => .chip48,
+        .chip48 => .schip_legacy,
+        .schip_legacy => .schip_modern,
+        .schip_modern => .xo_chip,
         .xo_chip => .octo_xo,
         .octo_xo => .modern,
     };

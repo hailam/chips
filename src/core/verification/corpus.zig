@@ -152,7 +152,7 @@ fn runFixtureAxesForRom(
                 .test_id = .scrolling,
                 .rom_id = rom.metadata.id,
                 .axis_name = "display",
-                .profile = .schip_11,
+                .profile = .schip_modern,
                 .store = run.ref_store,
                 .rom_sha1 = rom.metadata.sha1,
                 .min_lit_pixels = 100,

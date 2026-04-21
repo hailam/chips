@@ -165,12 +165,13 @@ fn checkStackDepth(
     allocator: std.mem.Allocator,
     diags: *std.ArrayList(report_mod.Diagnostic),
 ) !void {
-    // The spec allows 12 (COSMAC) or 16 (SCHIP). Anything outside that range
-    // is a red flag.
-    if (cpu_mod.CHIP8_STACK_SIZE < 12 or cpu_mod.CHIP8_STACK_SIZE > 16) {
+    // Physical capacity must accommodate the deepest supported profile —
+    // XO-CHIP requires 64. The per-call overflow trap applies a smaller cap
+    // for legacy profiles (see cpu.stackCap). Flag regressions below 64.
+    if (cpu_mod.CHIP8_STACK_SIZE < 64) {
         try diags.append(allocator, .{
             .kind = try allocator.dupe(u8, "stack_depth"),
-            .message = try std.fmt.allocPrint(allocator, "stack depth {d} outside spec range [12, 16]", .{cpu_mod.CHIP8_STACK_SIZE}),
+            .message = try std.fmt.allocPrint(allocator, "stack depth {d} below XO-CHIP spec minimum of 64", .{cpu_mod.CHIP8_STACK_SIZE}),
         });
     }
 }

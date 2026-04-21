@@ -48,16 +48,20 @@ pub const ConfigResolution = struct {
     }
 };
 
+pub const UnsupportedPlatformError = error{UnsupportedPlatform};
+
 // Builds a concrete EmulationConfig from a resolved config bundle. Starts
 // from the selected profile's default quirks (all 14 flags) and overrides
 // the 4 flags that chip-8-database models (shift/wrap/jump/logic) with the
 // oracle's values. Non-db flags stay at profile defaults.
 //
-// This is how a `quirkyPlatforms` override — which the database represents
-// as a partial override on the 7 canonical quirks — actually reaches the
-// CPU.
-pub fn emulationConfigFromResolution(resolution: ConfigResolution) emulation.EmulationConfig {
-    const profile = emulation.platformIdToProfile(resolution.config.platform) orelse .modern;
+// Returns error.UnsupportedPlatform when the resolved platform ID has no
+// internal profile mapping (e.g. chip8x, megachip8). Previously this
+// silently coerced to .modern, which let unsupported ROMs run under a
+// wrong-but-plausible config. Callers must now surface the error or fall
+// back to an explicit user-chosen profile.
+pub fn emulationConfigFromResolution(resolution: ConfigResolution) UnsupportedPlatformError!emulation.EmulationConfig {
+    const profile = emulation.platformIdToProfile(resolution.config.platform) orelse return error.UnsupportedPlatform;
     var cfg = emulation.EmulationConfig.init(profile);
     // Translate spec.Quirks → our QuirkFlags. Only the 4 fields with a
     // clean 1:1 mapping are touched; the others stay as the profile set.
@@ -65,7 +69,24 @@ pub fn emulationConfigFromResolution(resolution: ConfigResolution) emulation.Emu
     cfg.quirks.draw_wrap = resolution.config.quirks.wrap;
     cfg.quirks.jump_uses_vx = resolution.config.quirks.jump;
     cfg.quirks.logic_ops_clear_vf = resolution.config.quirks.logic;
+    cfg.quirks.vblank_wait = resolution.config.quirks.vblank;
+    // Collapse the database's (memoryIncrementByX, memoryLeaveIUnchanged) pair
+    // into our 3-state enum. `leaveI` wins when both are set (shouldn't happen
+    // upstream but we pick a deterministic resolution). Default is the VIP /
+    // XO-CHIP full increment.
+    cfg.quirks.memory_increment = if (resolution.config.quirks.memoryLeaveIUnchanged)
+        .leave_i_unchanged
+    else if (resolution.config.quirks.memoryIncrementByX)
+        .increment_by_x
+    else
+        .increment_full;
     return cfg;
+}
+
+// Lightweight predicate for callers that want to check support without
+// building a full config (e.g. CLI pre-flight, status line rendering).
+pub fn isPlatformSupported(platform_id: []const u8) bool {
+    return emulation.platformIdToProfile(platform_id) != null;
 }
 
 // Entry point for the ROM loader.
@@ -240,7 +261,7 @@ test "emulationConfigFromResolution respects spec.Quirks overrides" {
     };
     const res = ConfigResolution{ .layer = .database_match, .config = cfg };
 
-    const ec = emulationConfigFromResolution(res);
+    const ec = try emulationConfigFromResolution(res);
     try std.testing.expectEqual(emulation.QuirkProfile.xo_chip, ec.quirk_profile);
     try std.testing.expect(ec.quirks.shift_uses_vy); // !quirks.shift
     try std.testing.expect(!ec.quirks.draw_wrap); // overridden off despite xochip default
@@ -263,6 +284,29 @@ test "resolveConfigForRom uses inference for marker-free ROM" {
     defer res.deinit(allocator);
     try std.testing.expect(res.layer == .inference);
     try std.testing.expectEqualStrings("originalChip8", res.config.platform);
+}
+
+test "emulationConfigFromResolution rejects unsupported platforms" {
+    // chip8x and megachip8 have no internal profile mapping; the function
+    // must refuse to silently produce a .modern config for them.
+    inline for (.{ "chip8x", "megachip8" }) |bad_id| {
+        const cfg = ground_truth.RomConfig{
+            .platform = bad_id,
+            .quirks = .{ .shift = false, .memoryIncrementByX = false, .memoryLeaveIUnchanged = false, .wrap = false, .jump = false, .vblank = false, .logic = false },
+            .tickrate = 30,
+        };
+        const res = ConfigResolution{ .layer = .database_match, .config = cfg };
+        try std.testing.expectError(error.UnsupportedPlatform, emulationConfigFromResolution(res));
+    }
+}
+
+test "isPlatformSupported covers the mapped ids" {
+    try std.testing.expect(isPlatformSupported("originalChip8"));
+    try std.testing.expect(isPlatformSupported("modernChip8"));
+    try std.testing.expect(isPlatformSupported("superchip1"));
+    try std.testing.expect(isPlatformSupported("xochip"));
+    try std.testing.expect(!isPlatformSupported("chip8x"));
+    try std.testing.expect(!isPlatformSupported("megachip8"));
 }
 
 test "resolveConfigForRom picks inference when confidence high" {

@@ -8,7 +8,10 @@ const STATE_JSON_NAME = "state.json";
 const SAVES_DIR_NAME = "saves";
 const EXPORTS_DIR_NAME = "exports";
 const SAVE_MAGIC = "CH8S";
-const SAVE_VERSION: u32 = 3;
+// Bumped to 4: stack widened from [16]u16 to [64]u16 (XO-CHIP), vblank_wait
+// quirk added to the serialized QuirkFlags. Older save files are rejected
+// at load time rather than silently mis-parsed.
+const SAVE_VERSION: u32 = 4;
 
 pub const DisplayPalette = enum {
     classic_green,
@@ -326,7 +329,7 @@ pub fn serializeSaveStateEnvelope(envelope: *const SaveStateEnvelope, writer: *s
     try writer.writeAll(SAVE_MAGIC);
     try writer.writeInt(u32, SAVE_VERSION, .little);
     try writer.writeAll(&envelope.rom_sha1);
-    try writer.writeByte(@intFromEnum(envelope.quirk_profile));
+    try writer.writeByte(emulation.profileToByte(envelope.quirk_profile));
     try writer.writeInt(i32, envelope.cpu_hz_target, .little);
     try writer.writeByte(if (envelope.paused_state) 1 else 0);
     try chip8_mod.Chip8.writeSaveState(writer, &envelope.chip8_state);

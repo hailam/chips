@@ -2,9 +2,23 @@ const std = @import("std");
 
 pub const SPEC_VERSION: u32 = 1;
 
-// Mirrors the chip-8-database quirk flag set (database/quirks.json).
+// Mirrors the chip-8-database quirk flag set
+// (https://github.com/chip-8/chip-8-database — database/quirks.json).
 // Every flag is optional at the per-ROM override level — null means
 // "inherit from platform default".
+//
+// All 7 flags reach the CPU through runtime_check.emulationConfigFromResolution:
+//   shift                   → QuirkFlags.shift_uses_vy (inverted)
+//   memoryIncrementByX      → QuirkFlags.memory_increment (3-state enum)
+//   memoryLeaveIUnchanged   → QuirkFlags.memory_increment (3-state enum)
+//   wrap                    → QuirkFlags.draw_wrap
+//   jump                    → QuirkFlags.jump_uses_vx
+//   vblank                  → QuirkFlags.vblank_wait
+//   logic                   → QuirkFlags.logic_ops_clear_vf
+//
+// If upstream adds an 8th quirk, the compile-time test below will need to
+// be updated alongside emulationConfigFromResolution to route it — that's
+// the safety net against silent drops at import time.
 pub const QuirkSet = struct {
     shift: ?bool = null,
     memoryIncrementByX: ?bool = null,
@@ -14,6 +28,18 @@ pub const QuirkSet = struct {
     vblank: ?bool = null,
     logic: ?bool = null,
 };
+
+test "QuirkSet matches the upstream 7-quirk schema" {
+    // Fails loud if someone adds or removes a field without also updating
+    // runtime_check.emulationConfigFromResolution to route it. Prevents the
+    // audit's "flag silently dropped at import" regression.
+    const fields = std.meta.fields(QuirkSet);
+    try std.testing.expectEqual(@as(usize, 7), fields.len);
+    const expected = [_][]const u8{ "shift", "memoryIncrementByX", "memoryLeaveIUnchanged", "wrap", "jump", "vblank", "logic" };
+    inline for (fields, expected) |f, name| {
+        try std.testing.expectEqualStrings(name, f.name);
+    }
+}
 
 pub const DbColors = struct {
     pixels: ?[]const []const u8 = null,

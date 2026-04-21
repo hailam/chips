@@ -3,8 +3,20 @@ const emulation = @import("emulation_config.zig");
 const trace_mod = @import("trace.zig");
 
 pub const CHIP8_REGISTER_COUNT = 16;
-pub const CHIP8_STACK_SIZE = 16;
+// Physical stack capacity. VIP / SCHIP-era interpreters cap recursion at 16;
+// XO-CHIP's spec requires 64. We size the array for the largest allowed
+// depth and enforce the per-profile cap at the overflow check. See
+// `stackCap` in this module.
+pub const CHIP8_STACK_SIZE = 64;
+pub const CHIP8_STACK_SIZE_CLASSIC = 16;
 pub const CHIP8_MEMORY_SIZE = 65536;
+
+// Returns the logical stack-depth cap for the active quirk set. XO-CHIP
+// runtimes (quirks.supports_xo) may recurse to 64; everyone else still
+// traps on overflow at 16 to preserve legacy behavior.
+pub fn stackCap(quirks: emulation.QuirkFlags) u16 {
+    return if (quirks.supports_xo) CHIP8_STACK_SIZE else CHIP8_STACK_SIZE_CLASSIC;
+}
 
 pub const DISPLAY_WIDTH = 64;
 pub const DISPLAY_HEIGHT = 32;
@@ -422,6 +434,13 @@ pub const CPU = struct {
     // Rows actually rasterized by the most recent DRW. Used alongside
     // last_instruction_cycles so data-dependent cost is observable.
     last_draw_rows: u32 = 0,
+    // VIP vblank draw gate: true once a sprite has been drawn in the current
+    // 60Hz frame, cleared by tickTimers on the frame boundary. Under the
+    // vblank_wait quirk, a second DRW in the same frame is deferred — PC
+    // is rolled back so the instruction retries next cycle. `draw_stalled`
+    // tells the host loop to stop burning cycles until the frame tick.
+    drew_this_frame: bool = false,
+    draw_stalled: bool = false,
 
     pub const FlowKind = enum {
         none,
@@ -808,7 +827,7 @@ pub const CPU = struct {
                 trace_entry.addMicroOp(.{ .kind = .branch_pc, .source = .decode, .destination = trace_entry.destination });
             },
             .call => |addr| {
-                if (self.stack_pointer >= CHIP8_STACK_SIZE) return self.trapAt(.stack_overflow, fetch_pc, decoded, &trace_entry);
+                if (self.stack_pointer >= stackCap(quirks)) return self.trapAt(.stack_overflow, fetch_pc, decoded, &trace_entry);
                 const return_pc = self.program_counter;
                 const stack_slot = self.stack_pointer;
                 self.stack[self.stack_pointer] = return_pc;
@@ -940,6 +959,19 @@ pub const CPU = struct {
                 trace_entry.destination = trace_mod.registersEndpoint(s.vx, 1);
             },
             .drw => |s| {
+                // VIP vblank gate: at most one DRW per 60Hz frame. Roll PC
+                // back so the instruction retries after tickTimers clears
+                // `drew_this_frame`. draw_stalled asks the host loop to
+                // stop dispatching cycles until the next frame boundary.
+                if (quirks.vblank_wait and self.drew_this_frame) {
+                    self.program_counter -%= decoded.byte_len;
+                    self.draw_stalled = true;
+                    self.last_instruction_cycles = 1;
+                    trace_entry.tag = .draw;
+                    trace_entry.source = .decode;
+                    return;
+                }
+
                 const plane_mask = if (quirks.supports_xo) self.activePlaneMask() else 0x1;
                 const draw_kind = drawKind(s.n, quirks, self.display_mode);
                 if (draw_kind == .unsupported) return self.trapDecode(.unsupported_opcode, decoded, &trace_entry);
@@ -961,6 +993,8 @@ pub const CPU = struct {
                 const draw_result = self.drawSprite(memory, vx, vy, self.index_register, draw_kind, plane_mask, quirks.draw_wrap, quirks.draw_vf_rowcount_in_hires);
                 self.registers[0xF] = draw_result.vf;
                 self.draw_flag = true;
+                self.drew_this_frame = true;
+                self.draw_stalled = false;
                 self.last_i_target = self.index_register;
                 // COSMAC VIP's DRW cost scales with rows drawn. Update
                 // last_instruction_cycles with the data-dependent total
@@ -1074,7 +1108,11 @@ pub const CPU = struct {
                     memory[self.index_register + i] = self.registers[i];
                     self.stampWrite(self.index_register + i);
                 }
-                if (quirks.load_store_increment_i) self.index_register +%= @intCast(count);
+                switch (quirks.memory_increment) {
+                    .increment_full => self.index_register +%= @intCast(count),
+                    .increment_by_x => self.index_register +%= @intCast(vx),
+                    .leave_i_unchanged => {},
+                }
                 self.last_i_target = self.index_register;
                 // VIP FX55 microcode loops one register at a time; each
                 // iteration is ~14 machine cycles plus ~14 setup.
@@ -1089,7 +1127,11 @@ pub const CPU = struct {
                 const count = @as(usize, vx) + 1;
                 if (!self.ensureMemoryRange(self.index_register, count)) return self.trapDecode(.invalid_instruction, decoded, &trace_entry);
                 for (0..count) |i| self.registers[i] = memory[self.index_register + i];
-                if (quirks.load_store_increment_i) self.index_register +%= @intCast(count);
+                switch (quirks.memory_increment) {
+                    .increment_full => self.index_register +%= @intCast(count),
+                    .increment_by_x => self.index_register +%= @intCast(vx),
+                    .leave_i_unchanged => {},
+                }
                 self.last_i_target = self.index_register;
                 // Symmetric with FX55 — VIP FX65's per-register loop cost.
                 self.last_instruction_cycles = 14 + 14 * @as(u32, @intCast(count));
@@ -1200,12 +1242,18 @@ pub const CPU = struct {
     }
 
     fn scrollVertical(self: *CPU, plane_mask: u8, delta: i32) void {
+        // Incoming `delta` is in *logical* pixels. Lores renders each logical
+        // pixel as a 2×2 backing block, so a 1-logical-row scroll must move
+        // the backing buffer by 2 rows to stay aligned with the 2×2 grid.
+        // Without this scaling, odd deltas (XO-CHIP 00CN/00DN with N odd,
+        // or SCR/SCL in lores) desync the grid and logical pixels smear.
+        const backing_delta = delta * self.backingPixelScale();
         for (0..DISPLAY_PLANE_COUNT) |plane| {
             if ((plane_mask & (@as(u8, 1) << @intCast(plane))) == 0) continue;
             var next_plane = [_]u1{0} ** DISPLAY_BACKING_SIZE;
             for (0..DISPLAY_HIRES_HEIGHT) |y| {
                 for (0..DISPLAY_HIRES_WIDTH) |x| {
-                    const src_y = @as(i32, @intCast(y)) - delta;
+                    const src_y = @as(i32, @intCast(y)) - backing_delta;
                     if (src_y < 0 or src_y >= DISPLAY_HIRES_HEIGHT) continue;
                     next_plane[y * DISPLAY_HIRES_WIDTH + x] = self.display_planes[plane][@as(usize, @intCast(src_y)) * DISPLAY_HIRES_WIDTH + x];
                 }
@@ -1215,18 +1263,25 @@ pub const CPU = struct {
     }
 
     fn scrollHorizontal(self: *CPU, plane_mask: u8, delta: i32) void {
+        // Same backing-vs-logical story as scrollVertical. In lores, SCR/SCL
+        // ask to scroll 4 logical columns; that must become 8 backing columns.
+        const backing_delta = delta * self.backingPixelScale();
         for (0..DISPLAY_PLANE_COUNT) |plane| {
             if ((plane_mask & (@as(u8, 1) << @intCast(plane))) == 0) continue;
             var next_plane = [_]u1{0} ** DISPLAY_BACKING_SIZE;
             for (0..DISPLAY_HIRES_HEIGHT) |y| {
                 for (0..DISPLAY_HIRES_WIDTH) |x| {
-                    const src_x = @as(i32, @intCast(x)) - delta;
+                    const src_x = @as(i32, @intCast(x)) - backing_delta;
                     if (src_x < 0 or src_x >= DISPLAY_HIRES_WIDTH) continue;
                     next_plane[y * DISPLAY_HIRES_WIDTH + x] = self.display_planes[plane][y * DISPLAY_HIRES_WIDTH + @as(usize, @intCast(src_x))];
                 }
             }
             self.display_planes[plane] = next_plane;
         }
+    }
+
+    fn backingPixelScale(self: *const CPU) i32 {
+        return if (self.display_mode == .hires) 1 else 2;
     }
 
     fn drawSprite(
