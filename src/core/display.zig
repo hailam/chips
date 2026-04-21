@@ -869,9 +869,9 @@ fn renderRegisters(
 
     var stack_buf: [80]u8 = undefined;
     const stack_text = formatStackLine(cpu, &stack_buf);
-    const cell_w: i32 = 22;
+    const cell_w: i32 = 26;
     const cell_h: i32 = layout.REG_KEY_CELL_H;
-    const cell_gap: i32 = 4;
+    const cell_gap: i32 = 5;
     const keypad_w = cell_w * 4 + cell_gap * 3;
     const keypad_x = panel.x + panel.w - keypad_w - 12;
     const stack_w = @max(keypad_x - (panel.x + 10) - 16, 80);
@@ -883,16 +883,22 @@ fn renderRegisters(
     drawTextFit(panel.x + 40, cy, stack_w - 30, stack_text, layout.FONT_SIZE_SMALL, TEXT_MID);
     drawText(keypad_x - 34, cy, "KEY", layout.FONT_SIZE_SMALL, TEXT_DIM);
 
-    const trace_key_color = blendColor(BG_KEY, primary, 0.4);
-    // A recently-polled cell flashes in amber (distinct from the pressed-
-    // color accent and from trace-focus) for POLL_FLASH_FRAMES frames after
-    // SKP/SKNP/FX0A touched it. Tied to frame_count, which tickTimers
-    // increments at 60 Hz → ~100 ms fade.
+    // Keypad HUD visual hierarchy, quietest → loudest:
+    //
+    //   unused   — conclusive static scan says the ROM never polls this key.
+    //              No border, ghost text. Visually "gone".
+    //   default  — the resting state. Faint border outline, dim text. Tells
+    //              you the key exists and its mapping; doesn't shout.
+    //   polled   — the ROM just read this key. Cool cyan border only (no
+    //              fill). Reads as "electrical activity", decays in ~100ms.
+    //   trace    — debugger trace focus. Amber border, bright hex. Distinct
+    //              from polled so the two signals never confuse.
+    //   pressed  — the only filled cell. Bold accent fill, dark text. The
+    //              user's actual input dominates the grid when it's there.
+    //
+    // Filling only on press keeps the ambient panel quiet while still
+    // surfacing every other axis (polling, trace, mapping, usage) clearly.
     const POLL_FLASH_FRAMES: u32 = 6;
-    // When static analysis is conclusive, keys the ROM never polls are dimmed
-    // heavily so the user can immediately see which buttons matter. If the
-    // scan was inconclusive (dynamic register values, etc.), treat every key
-    // as potentially used and skip dimming.
     const conclusive = if (rom_analysis) |a| a.keys_analysis_conclusive else false;
     for (KEYPAD_ROWS, 0..) |row_keys, row| {
         const row_y = cy + @as(i32, @intCast(row)) * cell_h;
@@ -906,51 +912,59 @@ fn renderRegisters(
             const is_polled_flash = !is_pressed and cpu.key_poll_frame[key_idx] != 0 and polled_age < POLL_FLASH_FRAMES;
             const is_rom_unused = conclusive and rom_analysis != null and !rom_analysis.?.keys_used[key_idx];
 
-            // Baseline cell is the panel background (invisible fill) so the
-            // grid only shows when something is actually happening: pressed,
-            // polled, trace-focused. Unused cells get a subtly darker fill
-            // so they visibly sink below the baseline.
-            const cell_color = if (is_pressed)
-                primary
-            else if (is_polled_flash)
-                blendColor(BG_KEY, FG_AMBER, 0.65)
+            if (is_pressed) {
+                rl.drawRectangle(cell_x, row_y, cell_w, cell_h, primary);
+            }
+
+            // Muted accents: instead of using FG_CYAN/FG_AMBER at raw
+            // brightness, blend toward SEPARATOR so they read as "tinted
+            // border" rather than "lit neon". The press fill keeps the
+            // full accent so it's the only genuinely bright thing.
+            const polled_tint = blendColor(SEPARATOR, FG_CYAN, 0.45);
+            const trace_tint = blendColor(SEPARATOR, FG_AMBER, 0.55);
+
+            const border: ?rl.Color = if (is_pressed)
+                null
             else if (is_trace_key)
-                trace_key_color
+                trace_tint
+            else if (is_polled_flash)
+                polled_tint
             else if (is_rom_unused)
-                BG_DARK
+                null
             else
-                BG_PANEL;
-            const hex_text_color = if (is_pressed)
+                withAlpha(SEPARATOR, 90);
+            if (border) |bc| {
+                rl.drawRectangleLines(cell_x, row_y, cell_w, cell_h, bc);
+            }
+
+            const hex_color = if (is_pressed)
                 BG_DARK
-            else if (is_polled_flash)
-                TEXT_BRIGHT
             else if (is_trace_key)
-                TEXT_BRIGHT
+                TEXT_MID
+            else if (is_polled_flash)
+                TEXT_MID
             else if (is_rom_unused)
-                withAlpha(TEXT_DIM, 90)
+                withAlpha(TEXT_DIM, 60)
             else
                 TEXT_DIM;
 
-            rl.drawRectangle(cell_x, row_y, cell_w, cell_h, cell_color);
-            rl.drawRectangleLines(cell_x, row_y, cell_w, cell_h, withAlpha(SEPARATOR, 160));
-
-            // Top line: CHIP-8 hex in the main font.
+            // Hex label: sits near the top of the cell with padding.
             var key_buf: [1]u8 = .{key_char};
             const key_w = layout.measureMonoTextWidth(&key_buf, layout.FONT_SIZE_SMALL);
-            drawText(cell_x + @divTrunc(cell_w - key_w, 2), row_y, &key_buf, layout.FONT_SIZE_SMALL, hex_text_color);
+            drawText(cell_x + @divTrunc(cell_w - key_w, 2), row_y + 3, &key_buf, layout.FONT_SIZE_SMALL, hex_color);
 
-            // Bottom line: physical keyboard label (e.g. "W" for CHIP-8 5).
-            // Always the quietest text in the cell — it's a mapping hint,
-            // not an input signal.
+            // Physical label: bottom of the cell, comfortably separated
+            // from the hex. Faded so it reads as a mapping hint, not a
+            // second active signal.
             const phys_label = control.physicalLabelForChip8(@intCast(key_idx));
             const phys_w = layout.measureMonoTextWidth(phys_label, layout.FONT_SIZE_SMALL);
             const phys_color = if (is_pressed)
                 BG_DARK
             else if (is_rom_unused)
-                withAlpha(TEXT_DIM, 70)
+                withAlpha(TEXT_DIM, 45)
             else
-                withAlpha(TEXT_DIM, 150);
-            drawText(cell_x + @divTrunc(cell_w - phys_w, 2), row_y + 10, phys_label, layout.FONT_SIZE_SMALL, phys_color);
+                withAlpha(TEXT_DIM, 110);
+            drawText(cell_x + @divTrunc(cell_w - phys_w, 2), row_y + 16, phys_label, layout.FONT_SIZE_SMALL, phys_color);
         }
     }
 }

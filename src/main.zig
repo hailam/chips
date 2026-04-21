@@ -231,6 +231,9 @@ fn runGui(init: std.process.Init, initial_rom_path: ?[]const u8, requested_profi
     defer rl.closeWindow();
     rl.setWindowMinSize(display.MIN_WINDOW_WIDTH, display.MIN_WINDOW_HEIGHT);
     rl.setTargetFPS(60);
+    // Raylib defaults Escape to "exit app" via WindowShouldClose. We bind
+    // Escape to Run/Pause ourselves, so disable the built-in exit key.
+    rl.setExitKey(.null);
 
     display.initFont();
     defer display.deinitFont();

@@ -46,9 +46,9 @@ pub const LINE_H: i32 = 18;
 pub const LINE_H_SMALL: i32 = 15;
 pub const REG_ROW_H: i32 = 14;
 pub const REG_KEYPAD_ROWS: i32 = 4;
-// Tall enough for a CHIP-8 hex + a sub-line with the physical key label
-// (e.g. "5" / "W"). The keypad cells use this instead of REG_ROW_H.
-pub const REG_KEY_CELL_H: i32 = 22;
+// Two comfortable lines per cell (CHIP-8 hex over a physical key label
+// like "W"), with padding so the two glyphs don't crowd each other.
+pub const REG_KEY_CELL_H: i32 = 30;
 pub const REG_STACK_SECTION_H: i32 = REG_KEY_CELL_H * REG_KEYPAD_ROWS;
 pub const REG_CONTENT_MIN_H: i32 = HEADER_H + 2 + REG_ROW_H * 4 + 2 + 4 + REG_ROW_H * 3 + 2 + 4 + REG_STACK_SECTION_H + 8;
 pub const GUTTER_CONTENT_MIN_H: i32 = HEADER_H + 6 + LINE_H_SMALL * 6 + LINE_H_SMALL + LINE_H_SMALL * 4 + 10;
