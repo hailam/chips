@@ -1,0 +1,10 @@
+# CHIP-8 / SCHIP / XO-CHIP ROM files are raw binary — never normalize line
+# endings on checkout. Without this, Windows git (core.autocrlf=true) rewrites
+# any 0x0A byte to 0x0D 0x0A, which corrupts the ROM and breaks chip-8-database
+# SHA-1 lookups (so ROM colors / keys / tickrate never apply).
+*.ch8 binary
+*.rom binary
+
+# Reference framebuffers and other binary fixtures used by the verification
+# harness — same reason.
+*.bin binary
