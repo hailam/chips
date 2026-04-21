@@ -322,7 +322,7 @@ fn runGui(init: std.process.Init, initial_rom_path: ?[]const u8, requested_profi
         }
 
         if (ui_state.overlay == .none) {
-            if (rl.isKeyPressed(.space)) {
+            if (rl.isKeyPressed(.escape)) {
                 if (state == .running) {
                     state = .paused;
                 } else if (loaded_rom != null and chip8.cpu.trap_reason == null) {

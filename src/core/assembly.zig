@@ -14,6 +14,16 @@ pub const RomAnalysis = struct {
     rom_end: u16,
     profile: emulation.QuirkProfile,
     label_targets: [cpu.CHIP8_MEMORY_SIZE]bool,
+    // Which CHIP-8 keys (0..0xF) the ROM can plausibly poll, from a static
+    // scan of SKP / SKNP / FX0A. Only meaningful when
+    // `keys_analysis_conclusive` is true; otherwise the UI should treat every
+    // key as potentially used (no dimming).
+    keys_used: [16]bool = [_]bool{false} ** 16,
+    // True when every SKP/SKNP we saw had a locally-resolvable immediate
+    // (6xKK load within a short window on the same straight-line path) and
+    // no register-carried value escaped the analysis. False = scan was
+    // ambiguous; callers should assume all keys might be polled.
+    keys_analysis_conclusive: bool = true,
 
     pub fn hasLabel(self: *const RomAnalysis, addr: u16) bool {
         return addr < self.label_targets.len and self.label_targets[addr];
@@ -113,6 +123,16 @@ pub fn analyzeRomForProfile(profile: emulation.QuirkProfile, rom_bytes: []const 
     const rom_len = @min(rom_bytes.len, cpu.CHIP8_MEMORY_SIZE - @as(usize, ROM_START));
     const rom_end: u16 = @intCast(ROM_START + rom_len);
 
+    // Tracking for the static key-usage scan. For each CHIP-8 register we
+    // remember the most recent 6xKK immediate and how many instructions ago
+    // it was loaded; older than IMM_WINDOW or across a control-flow break
+    // means "stale, don't trust it for SKP/SKNP resolution".
+    const IMM_WINDOW: u8 = 4;
+    var last_imm: [16]?u8 = [_]?u8{null} ** 16;
+    var imm_age: [16]u8 = [_]u8{0} ** 16;
+    var keys_used = [_]bool{false} ** 16;
+    var conclusive = true;
+
     var offset: usize = 0;
     var rom_memory = [_]u8{0} ** cpu.CHIP8_MEMORY_SIZE;
     @memcpy(rom_memory[ROM_START .. ROM_START + rom_len], rom_bytes[0..rom_len]);
@@ -122,11 +142,49 @@ pub fn analyzeRomForProfile(profile: emulation.QuirkProfile, rom_bytes: []const 
         switch (decoded.instruction) {
             .jmp => |target| {
                 if (target >= ROM_START and target < rom_end) labels[target] = true;
+                // Crossing a control-flow break — every tracked immediate is
+                // stale from this point forward on the linear scan.
+                last_imm = [_]?u8{null} ** 16;
             },
             .call => |target| {
                 if (target >= ROM_START and target < rom_end) labels[target] = true;
+                last_imm = [_]?u8{null} ** 16;
+            },
+            .ret, .jmp_v0 => {
+                last_imm = [_]?u8{null} ** 16;
+            },
+            .ld_byte => |s| {
+                last_imm[s.vx] = s.byte;
+                imm_age[s.vx] = 0;
+            },
+            .skp, .sknp => |vx| {
+                if (last_imm[vx]) |kk| {
+                    if (imm_age[vx] <= IMM_WINDOW and kk <= 0xF) {
+                        keys_used[@intCast(kk)] = true;
+                    } else {
+                        conclusive = false;
+                    }
+                } else {
+                    conclusive = false;
+                }
+            },
+            .ld_vx_k => {
+                // FX0A is wait-for-any-key — every CHIP-8 key is in play.
+                keys_used = [_]bool{true} ** 16;
             },
             else => {},
+        }
+        // Age every tracked immediate one instruction; drop anything past
+        // the window so a later SKP can't resurrect a stale value.
+        for (0..16) |i| {
+            if (last_imm[i] != null) {
+                if (imm_age[i] == std.math.maxInt(u8)) {
+                    last_imm[i] = null;
+                } else {
+                    imm_age[i] += 1;
+                    if (imm_age[i] > IMM_WINDOW) last_imm[i] = null;
+                }
+            }
         }
         offset += decoded.byte_len;
     }
@@ -135,6 +193,8 @@ pub fn analyzeRomForProfile(profile: emulation.QuirkProfile, rom_bytes: []const 
         .rom_end = rom_end,
         .profile = profile,
         .label_targets = labels,
+        .keys_used = keys_used,
+        .keys_analysis_conclusive = conclusive,
     };
 }
 
@@ -1186,6 +1246,60 @@ fn profileName(profile: emulation.QuirkProfile) []const u8 {
         .xo_chip => "xo_chip",
         .octo_xo => "octo_xo",
     };
+}
+
+test "analyzeRomForProfile resolves SKP/SKNP immediates from local ld_byte" {
+    // LD V0,0x5; SKP V0; LD V0,0x8; SKP V0; then a HALT-ish self-jump.
+    const rom = [_]u8{
+        0x60, 0x05,
+        0xE0, 0x9E,
+        0x60, 0x08,
+        0xE0, 0x9E,
+        0x12, 0x06,
+    };
+    const a = analyzeRomForProfile(.modern, &rom);
+    try std.testing.expect(a.keys_analysis_conclusive);
+    try std.testing.expect(a.keys_used[0x5]);
+    try std.testing.expect(a.keys_used[0x8]);
+    try std.testing.expect(!a.keys_used[0x0]);
+    try std.testing.expect(!a.keys_used[0xA]);
+}
+
+test "analyzeRomForProfile marks inconclusive when SKP Vx has no recent load" {
+    // SKP V0 with no prior LD V0,KK — register value is dynamic.
+    const rom = [_]u8{ 0xE0, 0x9E, 0x12, 0x00 };
+    const a = analyzeRomForProfile(.modern, &rom);
+    try std.testing.expect(!a.keys_analysis_conclusive);
+}
+
+test "analyzeRomForProfile FX0A marks all keys used and stays conclusive" {
+    // LD V0, K (FX0A) — wait-for-any-key.
+    const rom = [_]u8{ 0xF0, 0x0A };
+    const a = analyzeRomForProfile(.modern, &rom);
+    try std.testing.expect(a.keys_analysis_conclusive);
+    for (a.keys_used) |used| try std.testing.expect(used);
+}
+
+test "analyzeRomForProfile JMP breaks the immediate tracker" {
+    // LD V0,5 ; JMP 0x206 ; (pad) ; SKP V0 → Vx is unresolved across the jump.
+    const rom = [_]u8{
+        0x60, 0x05,
+        0x12, 0x06,
+        0x00, 0x00,
+        0xE0, 0x9E,
+        0x12, 0x08,
+    };
+    const a = analyzeRomForProfile(.modern, &rom);
+    try std.testing.expect(!a.keys_analysis_conclusive);
+    try std.testing.expect(!a.keys_used[0x5]);
+}
+
+test "analyzeRomForProfile ROM without key opcodes stays conclusive and empty" {
+    // JMP $; no key ops at all.
+    const rom = [_]u8{ 0x12, 0x00 };
+    const a = analyzeRomForProfile(.modern, &rom);
+    try std.testing.expect(a.keys_analysis_conclusive);
+    for (a.keys_used) |used| try std.testing.expect(!used);
 }
 
 test "exportAnnotatedSource honors non-default start_address" {

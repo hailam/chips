@@ -65,6 +65,12 @@ pub fn setArrowOverrides(next: ArrowOverrides) void {
     arrow_overrides = next;
 }
 
+// Read-only snapshot of the currently-active per-ROM key remapping. Used by
+// the keypad HUD to surface overridden cells with a small badge.
+pub fn activeArrowOverrides() ArrowOverrides {
+    return arrow_overrides;
+}
+
 pub fn clearArrowOverrides() void {
     arrow_overrides = .{
         .up = null,

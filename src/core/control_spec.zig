@@ -48,7 +48,7 @@ pub const SpeedAction = enum {
     faster,
 };
 
-pub const controls_label = "SPACE Run/Pause  N/Shift+N Step/Over  B Break  O Recent  F2 Source  F5/F9 Save/Load  [ ] Speed  M Mute  P Profile  G FX  F11 Full";
+pub const controls_label = "ESC Run/Pause  N/Shift+N Step/Over  B Break  O Recent  F2 Source  F5/F9 Save/Load  [ ] Speed  M Mute  P Profile  G FX  F11 Full";
 pub const controls_hint = "W/A/S/D or arrows play  Tab switches trace/cycle/watches  ; edits watch  Wheel over Memory, Code, or Trace to scroll";
 
 pub const canonical_chip8_bindings = [_]Chip8Binding{
@@ -84,6 +84,31 @@ pub const speed_bindings = [_]struct {
     .{ .action = .slower, .physical_key = .left_bracket },
     .{ .action = .faster, .physical_key = .right_bracket },
 };
+
+// One- or two-character label for the physical key bound to a given CHIP-8
+// index, as shown under the hex in the keypad HUD. Falls back to empty when
+// no canonical binding exists (shouldn't happen for 0..0xF, but keeps the
+// caller total).
+pub fn physicalLabelForChip8(idx: u4) []const u8 {
+    return switch (idx) {
+        0x0 => "X",
+        0x1 => "1",
+        0x2 => "2",
+        0x3 => "3",
+        0x4 => "Q",
+        0x5 => "W",
+        0x6 => "E",
+        0x7 => "A",
+        0x8 => "S",
+        0x9 => "D",
+        0xA => "Z",
+        0xB => "C",
+        0xC => "4",
+        0xD => "R",
+        0xE => "F",
+        0xF => "V",
+    };
+}
 
 pub fn foldPressedChip8Keys(pressed: []const bool) [16]bool {
     var keys = [_]bool{false} ** 16;

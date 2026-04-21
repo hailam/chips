@@ -173,7 +173,10 @@ pub fn profileQuirks(profile: QuirkProfile) QuirkFlags {
             .max_rpl = 8,
             .vblank_wait = false,
         },
-        // xochip: shift=false, wrap=true, jump=false, vblank=false, logic=false
+        // xochip: shift=false, wrap=true, jump=false, vblank=false, logic=false.
+        // XO-CHIP's DXY0 renders a 16×16 sprite in BOTH hires and lores — the
+        // extension isn't Octo-only. Without this, ROMs like 3D Viper Maze
+        // (which calls DXY0 while in lores after 00FE) trap as unsupported.
         .xo_chip => .{
             .shift_uses_vy = true,
             .memory_increment = .increment_full,
@@ -184,7 +187,7 @@ pub fn profileQuirks(profile: QuirkProfile) QuirkFlags {
             .supports_xo = true,
             .octo_behavior = false,
             .resolution_switch_clears = true,
-            .dxy0_lores_16x16 = false,
+            .dxy0_lores_16x16 = true,
             .fx30_large_font_hex = false,
             .draw_vf_rowcount_in_hires = true,
             .max_rpl = 16,

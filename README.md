@@ -38,7 +38,7 @@ chip8 check source.asm
 
 | Key | Action |
 |-----|--------|
-| SPACE | Run / Pause |
+| ESC | Run / Pause |
 | N | Step into (when paused) |
 | Shift + N | Step over CALL (when paused) |
 | BACKSPACE | Reset |
@@ -59,7 +59,7 @@ chip8 check source.asm
 
 Runtime footer text uses:
 
-`SPACE Run/Pause  N/Shift+N Step/Over  B Break  O Recent  F2 Source  F5/F9 Save/Load  [ ] Speed  M Mute  P Profile  G FX  F11 Full`
+`ESC Run/Pause  N/Shift+N Step/Over  B Break  O Recent  F2 Source  F5/F9 Save/Load  [ ] Speed  M Mute  P Profile  G FX  F11 Full`
 
 ## Code Panel
 

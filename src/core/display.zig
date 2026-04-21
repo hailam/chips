@@ -116,7 +116,7 @@ pub fn renderAll(
     const show_trace_focus = active_trace != null and (state != .running or !debugger_state.trace_follow_live or debugger_state.selected_trace_index != null);
 
     renderDisplay(cpu, ui.display, ui.display_scale, settings, active_trace, show_trace_focus);
-    renderRegisters(cpu, state, ui.registers, ui_state.last_latched_key, settings, active_trace, show_trace_focus);
+    renderRegisters(cpu, state, ui.registers, ui_state.last_latched_key, settings, active_trace, show_trace_focus, rom_analysis);
     renderCodePanel(cpu, memory, debugger_state, ui.disassembler, ui.disasm_rows_visible, disasm_scroll.*, rom_analysis);
     renderMiddlePanel(cpu, memory, debugger_state, ui.gutter);
     renderMemoryView(cpu, memory, ui.memory, ui.memory_rows_visible, mem_scroll.*, active_trace, show_trace_focus);
@@ -788,6 +788,7 @@ fn renderRegisters(
     settings: persistence.DisplaySettings,
     active_trace: ?debugger_mod.TraceEntry,
     show_trace_focus: bool,
+    rom_analysis: ?*const assembly.RomAnalysis,
 ) void {
     drawPanel(panel, "REGISTERS");
     const primary = primaryAccent(settings);
@@ -868,8 +869,8 @@ fn renderRegisters(
 
     var stack_buf: [80]u8 = undefined;
     const stack_text = formatStackLine(cpu, &stack_buf);
-    const cell_w: i32 = 18;
-    const cell_h: i32 = 12;
+    const cell_w: i32 = 22;
+    const cell_h: i32 = layout.REG_KEY_CELL_H;
     const cell_gap: i32 = 4;
     const keypad_w = cell_w * 4 + cell_gap * 3;
     const keypad_x = panel.x + panel.w - keypad_w - 12;
@@ -883,33 +884,73 @@ fn renderRegisters(
     drawText(keypad_x - 34, cy, "KEY", layout.FONT_SIZE_SMALL, TEXT_DIM);
 
     const trace_key_color = blendColor(BG_KEY, primary, 0.4);
+    // A recently-polled cell flashes in amber (distinct from the pressed-
+    // color accent and from trace-focus) for POLL_FLASH_FRAMES frames after
+    // SKP/SKNP/FX0A touched it. Tied to frame_count, which tickTimers
+    // increments at 60 Hz → ~100 ms fade.
+    const POLL_FLASH_FRAMES: u32 = 6;
+    // When static analysis is conclusive, keys the ROM never polls are dimmed
+    // heavily so the user can immediately see which buttons matter. If the
+    // scan was inconclusive (dynamic register values, etc.), treat every key
+    // as potentially used and skip dimming.
+    const conclusive = if (rom_analysis) |a| a.keys_analysis_conclusive else false;
     for (KEYPAD_ROWS, 0..) |row_keys, row| {
-        const row_y = cy + @as(i32, @intCast(row)) * row_h;
+        const row_y = cy + @as(i32, @intCast(row)) * cell_h;
         for (row_keys, 0..) |key_char, col| {
             const key_idx = keyIndexForChar(key_char) orelse continue;
             const cell_x = keypad_x + @as(i32, @intCast(col)) * (cell_w + cell_gap);
             const trace_key = if (show_trace_focus and active_trace != null) traceKeyFocus(active_trace.?) else null;
             const is_trace_key = trace_key != null and trace_key.? == key_idx;
             const is_pressed = cpu.keys[key_idx];
+            const polled_age = cpu.frame_count -% cpu.key_poll_frame[key_idx];
+            const is_polled_flash = !is_pressed and cpu.key_poll_frame[key_idx] != 0 and polled_age < POLL_FLASH_FRAMES;
+            const is_rom_unused = conclusive and rom_analysis != null and !rom_analysis.?.keys_used[key_idx];
+
+            // Baseline cell is the panel background (invisible fill) so the
+            // grid only shows when something is actually happening: pressed,
+            // polled, trace-focused. Unused cells get a subtly darker fill
+            // so they visibly sink below the baseline.
             const cell_color = if (is_pressed)
                 primary
+            else if (is_polled_flash)
+                blendColor(BG_KEY, FG_AMBER, 0.65)
             else if (is_trace_key)
                 trace_key_color
-            else
-                BG_KEY;
-            const text_color = if (is_pressed)
+            else if (is_rom_unused)
                 BG_DARK
+            else
+                BG_PANEL;
+            const hex_text_color = if (is_pressed)
+                BG_DARK
+            else if (is_polled_flash)
+                TEXT_BRIGHT
             else if (is_trace_key)
                 TEXT_BRIGHT
+            else if (is_rom_unused)
+                withAlpha(TEXT_DIM, 90)
             else
-                TEXT_MID;
+                TEXT_DIM;
 
             rl.drawRectangle(cell_x, row_y, cell_w, cell_h, cell_color);
-            rl.drawRectangleLines(cell_x, row_y, cell_w, cell_h, SEPARATOR);
+            rl.drawRectangleLines(cell_x, row_y, cell_w, cell_h, withAlpha(SEPARATOR, 160));
 
+            // Top line: CHIP-8 hex in the main font.
             var key_buf: [1]u8 = .{key_char};
             const key_w = layout.measureMonoTextWidth(&key_buf, layout.FONT_SIZE_SMALL);
-            drawText(cell_x + @divTrunc(cell_w - key_w, 2), row_y - 1, &key_buf, layout.FONT_SIZE_SMALL, text_color);
+            drawText(cell_x + @divTrunc(cell_w - key_w, 2), row_y, &key_buf, layout.FONT_SIZE_SMALL, hex_text_color);
+
+            // Bottom line: physical keyboard label (e.g. "W" for CHIP-8 5).
+            // Always the quietest text in the cell — it's a mapping hint,
+            // not an input signal.
+            const phys_label = control.physicalLabelForChip8(@intCast(key_idx));
+            const phys_w = layout.measureMonoTextWidth(phys_label, layout.FONT_SIZE_SMALL);
+            const phys_color = if (is_pressed)
+                BG_DARK
+            else if (is_rom_unused)
+                withAlpha(TEXT_DIM, 70)
+            else
+                withAlpha(TEXT_DIM, 150);
+            drawText(cell_x + @divTrunc(cell_w - phys_w, 2), row_y + 10, phys_label, layout.FONT_SIZE_SMALL, phys_color);
         }
     }
 }

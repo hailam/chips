@@ -441,6 +441,10 @@ pub const CPU = struct {
     // tells the host loop to stop burning cycles until the frame tick.
     drew_this_frame: bool = false,
     draw_stalled: bool = false,
+    // frame_count at which each CHIP-8 key (0..0xF) was most recently
+    // polled by SKP / SKNP / FX0A. Used by the UI to briefly flash cells
+    // that the ROM is actively watching. Transient — not serialized.
+    key_poll_frame: [16]u32 = [_]u32{0} ** 16,
 
     pub const FlowKind = enum {
         none,
@@ -1017,11 +1021,13 @@ pub const CPU = struct {
             },
             .skp => |vx| {
                 const key = @as(u4, @truncate(self.registers[vx] & 0xF));
+                self.key_poll_frame[key] = self.frame_count;
                 const should_skip = self.keys[key];
                 self.handleKeySkip(should_skip, key, decoded, &trace_entry, memory, quirks);
             },
             .sknp => |vx| {
                 const key = @as(u4, @truncate(self.registers[vx] & 0xF));
+                self.key_poll_frame[key] = self.frame_count;
                 const should_skip = !self.keys[key];
                 self.handleKeySkip(should_skip, key, decoded, &trace_entry, memory, quirks);
             },
@@ -1036,6 +1042,9 @@ pub const CPU = struct {
                 self.waiting_for_key = true;
                 self.key_register = vx;
                 self.program_counter -%= decoded.byte_len;
+                // FX0A watches every key — tag them all as freshly polled
+                // so the UI can flash the whole row during the wait.
+                for (0..16) |i| self.key_poll_frame[i] = self.frame_count;
                 // FX0A is a busy poll — on VIP, one iteration of the keypad
                 // scan + branch is ~40 cycles. Each call to
                 // executeInstruction represents one poll, so this is the

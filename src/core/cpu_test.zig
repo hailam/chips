@@ -480,7 +480,7 @@ test "Timing startup defaults scale with profile and upgrade legacy 600hz saves"
 }
 
 test "Control spec footer copy is shared and layout uses it" {
-    try std.testing.expectEqualStrings("SPACE Run/Pause  N/Shift+N Step/Over  B Break  O Recent  F2 Source  F5/F9 Save/Load  [ ] Speed  M Mute  P Profile  G FX  F11 Full", control.controls_label);
+    try std.testing.expectEqualStrings("ESC Run/Pause  N/Shift+N Step/Over  B Break  O Recent  F2 Source  F5/F9 Save/Load  [ ] Speed  M Mute  P Profile  G FX  F11 Full", control.controls_label);
     try std.testing.expectEqualStrings("W/A/S/D or arrows play  Tab switches trace/cycle/watches  ; edits watch  Wheel over Memory, Code, or Trace to scroll", control.controls_hint);
 
     const narrow_layout = display_layout.computeLayout(display_layout.MIN_WINDOW_WIDTH, display_layout.MIN_WINDOW_HEIGHT);
