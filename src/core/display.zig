@@ -9,6 +9,7 @@ const debugger_mod = @import("debugger.zig");
 const emulation = @import("emulation_config.zig");
 const layout = @import("display_layout.zig");
 const models = @import("registry_models.zig");
+const registry = @import("registry.zig");
 const persistence = @import("persistence.zig");
 const trace_mod = @import("trace.zig");
 const ui_mod = @import("ui_state.zig");
@@ -1450,9 +1451,10 @@ fn renderOverlay(
     drawPanel(overlay, "OVERLAY");
 
     switch (ui_state.overlay) {
-        .recent_roms => renderRecentRomOverlay(overlay, recent_roms, installed_roms, ui_state.recent_selection),
+        .recent_roms => renderRecentRomOverlay(overlay, recent_roms, installed_roms, ui_state.recent_selection, ui_state.pending_remove),
         .save_slots => |mode| renderSlotOverlay(overlay, mode, ui_state.active_save_slot),
         .watch_edit => |edit| renderWatchEditOverlay(overlay, edit, debugger_state.selected_watch_slot),
+        .registry_search => |*search| renderRegistrySearchOverlay(overlay, search, installed_roms),
         .none => {},
     }
 }
@@ -1469,8 +1471,13 @@ fn renderRecentRomOverlay(
     recent_roms: []const persistence.RecentRom,
     installed_roms: []const models.InstalledRom,
     selection: usize,
+    pending_remove: ?ui_mod.RemoveConfirm,
 ) void {
-    drawText(panel.x + 12, panel.y + layout.HEADER_H + 6, "ROM LIBRARY  (Enter to load, Esc to close, drag/drop also works)", layout.FONT_SIZE_SMALL, TEXT_MID);
+    const header = if (pending_remove != null)
+        "ROM LIBRARY  (Press X again to REMOVE, Esc cancels)"
+    else
+        "ROM LIBRARY  (Enter load, X remove installed, R browse registry, Esc close)";
+    drawText(panel.x + 12, panel.y + layout.HEADER_H + 6, header, layout.FONT_SIZE_SMALL, if (pending_remove != null) FG_AMBER else TEXT_MID);
     var cy = panel.y + layout.HEADER_H + 28;
     var cursor: usize = 0;
 
@@ -1522,6 +1529,82 @@ fn renderRecentRomOverlay(
     if (cursor == 0) {
         drawText(panel.x + 12, cy, "No ROMs yet. Try `chip8 get <source>`.", layout.FONT_SIZE, TEXT_DIM);
     }
+}
+
+fn renderRegistrySearchOverlay(
+    panel: layout.PanelRect,
+    search: *const ui_mod.RegistrySearchState,
+    installed_roms: []const models.InstalledRom,
+) void {
+    const installing = search.installing_index != null;
+    const header = if (installing)
+        "REGISTRY  (installing… take a sec; Esc to close, overlay will reopen if you press R)"
+    else
+        "REGISTRY  (type to filter, Enter installs, Esc closes)";
+    drawText(panel.x + 12, panel.y + layout.HEADER_H + 6, header, layout.FONT_SIZE_SMALL, if (installing) FG_AMBER else TEXT_MID);
+
+    // Search box.
+    const box_x = panel.x + 12;
+    const box_y = panel.y + layout.HEADER_H + 26;
+    const box_w = panel.w - 24;
+    const box_h: i32 = 22;
+    rl.drawRectangle(box_x, box_y, box_w, box_h, BG_DARK);
+    rl.drawRectangleLines(box_x, box_y, box_w, box_h, withAlpha(SEPARATOR, 140));
+    const query_text = search.query.slice();
+    if (query_text.len == 0) {
+        drawText(box_x + 8, box_y + 4, "> type a search…", layout.FONT_SIZE, withAlpha(TEXT_DIM, 150));
+    } else {
+        var qbuf: [144]u8 = undefined;
+        const rendered = std.fmt.bufPrint(&qbuf, "> {s}_", .{query_text}) catch query_text;
+        drawText(box_x + 8, box_y + 4, rendered, layout.FONT_SIZE, TEXT_BRIGHT);
+    }
+
+    var cy = box_y + box_h + 10;
+    if (search.results.len == 0) {
+        drawText(panel.x + 12, cy, "No results. Check `chip8 refresh` if your registry state is empty.", layout.FONT_SIZE_SMALL, TEXT_DIM);
+        return;
+    }
+
+    // Scroll window — keep selection visible in a 10-row viewport.
+    const visible_rows: usize = 10;
+    const window_start = if (search.selection >= visible_rows) search.selection - visible_rows + 1 else 0;
+    const window_end = @min(search.results.len, window_start + visible_rows);
+
+    var i: usize = window_start;
+    while (i < window_end) : (i += 1) {
+        const r = search.results[i];
+        const is_selected = i == search.selection;
+        const is_installing = if (search.installing_index) |idx| idx == i else false;
+        if (is_selected) rl.drawRectangle(panel.x + 8, cy - 1, panel.w - 16, layout.LINE_H, HIGHLIGHT_CURRENT);
+
+        const already = isAlreadyInstalled(installed_roms, r);
+        const title: []const u8 = if (r.metadata.chip8_db_entry) |e| e.title else r.metadata.id;
+        var line_buf: [208]u8 = undefined;
+        const marker: []const u8 = if (is_installing) "⏳ " else if (already) "✓ " else "  ";
+        const line = std.fmt.bufPrint(&line_buf, "{s}{s}:{s}  —  {s}", .{ marker, r.registry_name, r.metadata.id, title }) catch r.metadata.id;
+        const text_color = if (is_selected) TEXT_BRIGHT else if (already) withAlpha(TEXT_DIM, 190) else TEXT_MID;
+        drawTextFit(panel.x + 12, cy, panel.w - 24, line, layout.FONT_SIZE, text_color);
+        cy += layout.LINE_H;
+    }
+}
+
+fn isAlreadyInstalled(installed: []const models.InstalledRom, r: registry.SearchResult) bool {
+    if (r.metadata.sha1) |sha1| {
+        for (installed) |rom| {
+            if (rom.metadata.sha1) |installed_sha| {
+                if (std.mem.eql(u8, installed_sha, sha1)) return true;
+            }
+        }
+    }
+    // Fallback: match on (registry, id) when sha1 isn't set.
+    for (installed) |rom| {
+        const ns: ?[]const u8 = switch (rom.local.source) {
+            .known_registry => |v| v.name,
+            else => null,
+        };
+        if (ns) |n| if (std.mem.eql(u8, n, r.registry_name) and std.mem.eql(u8, rom.metadata.id, r.metadata.id)) return true;
+    }
+    return false;
 }
 
 fn renderSlotOverlay(panel: layout.PanelRect, mode: ui_mod.SlotOverlayMode, active_slot: u8) void {

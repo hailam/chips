@@ -17,6 +17,7 @@ const trace = @import("trace.zig");
 comptime {
     _ = @import("url.zig");
     _ = @import("registry_models.zig");
+    _ = @import("task_runner.zig");
     _ = @import("spec.zig");
     _ = @import("state.zig");
     _ = @import("verification/oracle/spec.zig");

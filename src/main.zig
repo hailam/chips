@@ -10,6 +10,7 @@ const models = @import("core/registry_models.zig");
 const cache = @import("core/cache.zig");
 const state_mod = @import("core/state.zig");
 const chip8_db_cache = @import("core/chip8_db_cache.zig");
+const task_runner_mod = @import("core/task_runner.zig");
 const spec_mod = @import("core/spec.zig");
 const github_mod = @import("core/github.zig");
 const runtime_check = @import("core/verification/runtime_check.zig");
@@ -144,6 +145,33 @@ fn resolveOverlaySelection(
     return null;
 }
 
+// Mirror of resolveOverlaySelection that returns the InstalledRom struct
+// (not just its path) when the picked slot is an installed entry. Used by
+// the X-to-remove flow so we can build the `<namespace>:<id>` string that
+// `registry.remove` expects.
+// Build the `<namespace>:<id>` (or bare `<id>`) string that `registry.remove`
+// expects for a given installed ROM. Caller owns the returned slice.
+fn buildRemoveId(allocator: std.mem.Allocator, rom: models.InstalledRom) ![]u8 {
+    if (registry.installedRegistryName(rom)) |ns| {
+        return std.fmt.allocPrint(allocator, "{s}:{s}", .{ ns, rom.metadata.id });
+    }
+    return allocator.dupe(u8, rom.metadata.id);
+}
+
+fn resolveOverlayInstalled(
+    installed: []const models.InstalledRom,
+    recents: []const persistence.RecentRom,
+    index: usize,
+) ?models.InstalledRom {
+    var cursor: usize = 0;
+    for (installed) |rom| {
+        if (recentsContainPath(recents, rom.local.path)) continue;
+        if (cursor == index) return rom;
+        cursor += 1;
+    }
+    return null;
+}
+
 fn resolveRomPathAlloc(
     io: std.Io,
     allocator: std.mem.Allocator,
@@ -219,12 +247,29 @@ fn runGui(init: std.process.Init, initial_rom_path: ?[]const u8, requested_profi
     defer app_state.deinit();
 
     // Catalog of installed ROMs — shown in the startup overlay so users can
-    // launch `chip8 get`-installed ROMs they haven't opened yet.
-    const installed_list = registry.listInstalled(init.io, init.gpa, app_data_root) catch &.{};
+    // launch `chip8 get`-installed ROMs they haven't opened yet. Mutable so
+    // the GUI install/remove flows can refresh it.
+    var installed_list: []models.InstalledRom = registry.listInstalled(init.io, init.gpa, app_data_root) catch &.{};
     defer {
         for (installed_list) |r| r.deinit(init.gpa);
         init.gpa.free(installed_list);
     }
+
+    // Registry plumbing for the GUI: loaded once, shared between the main
+    // render thread and the background install worker (serialized via the
+    // task_runner's mutex).
+    var registry_config = try config_mod.loadConfig(init.io, init.gpa, app_data_root);
+    defer registry_config.deinit(init.gpa);
+    const gh_token = try resolveToken(init, registry_config);
+    if (registry_config.github_token == null and gh_token != null) registry_config.github_token = gh_token.?;
+    defer if (registry_config.github_token != null and gh_token != null) init.gpa.free(gh_token.?);
+
+    var reg_state = try state_mod.loadState(init.io, init.gpa, app_data_root);
+    defer reg_state.deinit();
+    var db_cache_state = try chip8_db_cache.load(init.io, init.gpa, app_data_root);
+    defer db_cache_state.deinit();
+    var task_runner = task_runner_mod.TaskRunner.init(init.gpa, init.io, app_data_root);
+    defer task_runner.deinit();
 
     rl.setConfigFlags(.{ .window_resizable = true });
     rl.initWindow(display.DEFAULT_WINDOW_WIDTH, display.DEFAULT_WINDOW_HEIGHT, "Chip-8 Emulator");
@@ -307,13 +352,17 @@ fn runGui(init: std.process.Init, initial_rom_path: ?[]const u8, requested_profi
             &init,
             app_data_root,
             &app_state,
-            installed_list,
+            &installed_list,
             &loaded_rom,
             &chip8,
             &debugger_state,
             &timing_state,
             &ui_state,
             &state,
+            &reg_state,
+            &db_cache_state,
+            registry_config,
+            &task_runner,
         )) |overlay_loaded| {
             if (overlay_loaded) {
                 mem_scroll = 0x20;
@@ -324,7 +373,54 @@ fn runGui(init: std.process.Init, initial_rom_path: ?[]const u8, requested_profi
             else => return err,
         }
 
+        // Consume any background install result that landed this frame. On
+        // success, refresh the installed list, close the registry overlay,
+        // and boot into the freshly-installed ROM so the user doesn't have
+        // to re-navigate to launch it.
+        if (task_runner.pollCompletion()) |completed| {
+            switch (completed) {
+                .install_ok => |rom| {
+                    ui_state.setStatusFmt("Installed {s}", .{rom.metadata.id});
+                    // Refresh the installed list.
+                    for (installed_list) |r| r.deinit(init.gpa);
+                    init.gpa.free(installed_list);
+                    installed_list = registry.listInstalled(init.io, init.gpa, app_data_root) catch &.{};
+                    // Close registry overlay if it's still open.
+                    if (ui_state.overlay == .registry_search) {
+                        ui_state.overlay.registry_search.deinit(init.gpa);
+                        ui_state.overlay = .none;
+                    }
+                    // Launch the just-installed ROM.
+                    const launch_path = try init.gpa.dupe(u8, rom.local.path);
+                    defer init.gpa.free(launch_path);
+                    rom.deinit(init.gpa);
+                    var mutable_init = init;
+                    const new_rom = try loadRomIntoRuntime(&mutable_init, app_data_root, &app_state, launch_path, null, &chip8, &timing_state, &ui_state);
+                    if (loaded_rom) |*current| current.deinit(init.gpa);
+                    loaded_rom = new_rom;
+                    debugger_state = debugger_mod.DebuggerState.init();
+                    mem_scroll = 0x20;
+                    disasm_scroll = 0;
+                    state = .running;
+                },
+                .install_err => |msg| {
+                    ui_state.setStatus(msg);
+                    init.gpa.free(msg);
+                },
+            }
+        }
+
         if (ui_state.overlay == .none) {
+            if (rl.isKeyPressed(.r) and !shift_down) {
+                // Open the registry search overlay. Preload results for the
+                // empty query so the user sees everything immediately; they
+                // can start typing to narrow down.
+                var search_state = ui_mod.RegistrySearchState{};
+                if (registry.search(init.gpa, "", &reg_state, &db_cache_state)) |results| {
+                    search_state.results = results;
+                } else |_| {}
+                ui_state.overlay = .{ .registry_search = search_state };
+            }
             if (rl.isKeyPressed(.escape)) {
                 if (state == .running) {
                     state = .paused;
@@ -573,36 +669,137 @@ fn handleOverlayInput(
     init: *const std.process.Init,
     app_data_root: []const u8,
     app_state: *persistence.AppState,
-    installed: []const models.InstalledRom,
+    installed: *[]models.InstalledRom,
     loaded_rom: *?LoadedRom,
     chip8: *Chip8,
     debugger_state: *debugger_mod.DebuggerState,
     timing_state: *timing.TimingState,
     ui_state: *ui_mod.UiState,
     state: *display.EmulatorState,
+    reg_state: *state_mod.State,
+    db_cache_state: *chip8_db_cache.State,
+    registry_config: config_mod.Config,
+    task_runner: *task_runner_mod.TaskRunner,
 ) !bool {
     switch (ui_state.overlay) {
         .none => return false,
         .recent_roms => {
             if (rl.isKeyPressed(.escape) or rl.isKeyPressed(.o)) {
                 ui_state.overlay = .none;
+                ui_state.pending_remove = null;
                 return false;
             }
-            const installed_visible = countInstalledNotInRecent(installed, app_state.recent_roms.items);
+            const installed_visible = countInstalledNotInRecent(installed.*, app_state.recent_roms.items);
             const total = installed_visible + app_state.recent_roms.items.len;
             if (total == 0) return false;
-            if (rl.isKeyPressed(.down)) ui_state.recent_selection = @min(ui_state.recent_selection + 1, total - 1);
-            if (rl.isKeyPressed(.up)) ui_state.recent_selection -|= 1;
+            if (rl.isKeyPressed(.down)) {
+                ui_state.recent_selection = @min(ui_state.recent_selection + 1, total - 1);
+                ui_state.pending_remove = null;
+            }
+            if (rl.isKeyPressed(.up)) {
+                ui_state.recent_selection -|= 1;
+                ui_state.pending_remove = null;
+            }
+
+            // X removes an installed ROM. First press arms a pending-confirm;
+            // second press actually removes. Only installed rows (top half of
+            // the overlay) are removable — recents without an installed
+            // backing have nothing for `registry.remove` to delete.
+            if (rl.isKeyPressed(.x)) {
+                if (resolveOverlayInstalled(installed.*, app_state.recent_roms.items, ui_state.recent_selection)) |rom| {
+                    const confirmed = if (ui_state.pending_remove) |p| p.target_index == ui_state.recent_selection else false;
+                    if (confirmed) {
+                        const id_owned = try buildRemoveId(init.gpa, rom);
+                        defer init.gpa.free(id_owned);
+                        registry.remove(init.io, init.gpa, id_owned, app_data_root) catch |err| {
+                            ui_state.setStatusFmt("Remove failed: {s}", .{@errorName(err)});
+                            ui_state.pending_remove = null;
+                            return false;
+                        };
+                        ui_state.setStatusFmt("Removed {s}", .{id_owned});
+                        ui_state.pending_remove = null;
+                        // Refresh installed list and clamp selection.
+                        for (installed.*) |r| r.deinit(init.gpa);
+                        init.gpa.free(installed.*);
+                        installed.* = registry.listInstalled(init.io, init.gpa, app_data_root) catch &.{};
+                        const new_total = countInstalledNotInRecent(installed.*, app_state.recent_roms.items) + app_state.recent_roms.items.len;
+                        if (new_total == 0) {
+                            ui_state.recent_selection = 0;
+                        } else if (ui_state.recent_selection >= new_total) {
+                            ui_state.recent_selection = new_total - 1;
+                        }
+                    } else {
+                        ui_state.pending_remove = .{ .target_index = ui_state.recent_selection };
+                        ui_state.setStatusFmt("Press X again to remove {s}", .{rom.metadata.id});
+                    }
+                }
+            }
+
             if (rl.isKeyPressed(.enter)) {
-                const path = resolveOverlaySelection(installed, app_state.recent_roms.items, ui_state.recent_selection) orelse return false;
+                const path = resolveOverlaySelection(installed.*, app_state.recent_roms.items, ui_state.recent_selection) orelse return false;
                 var mutable_init = init.*;
                 const new_rom = try loadRomIntoRuntime(&mutable_init, app_data_root, app_state, path, null, chip8, timing_state, ui_state);
                 if (loaded_rom.*) |*current| current.deinit(init.gpa);
                 loaded_rom.* = new_rom;
                 debugger_state.* = debugger_mod.DebuggerState.init();
                 ui_state.overlay = .none;
+                ui_state.pending_remove = null;
                 state.* = .running;
                 return true;
+            }
+            return false;
+        },
+        .registry_search => |*search| {
+            if (rl.isKeyPressed(.escape)) {
+                search.deinit(init.gpa);
+                ui_state.overlay = .none;
+                return false;
+            }
+
+            // Printable characters go into the query buffer; each change
+            // re-runs the in-memory search (fast, no network).
+            var query_changed = false;
+            while (true) {
+                const codepoint = rl.getCharPressed();
+                if (codepoint == 0) break;
+                if (codepoint < 32 or codepoint > 126) continue;
+                search.query.appendChar(@intCast(codepoint));
+                query_changed = true;
+            }
+            if (rl.isKeyPressed(.backspace) and search.query.len > 0) {
+                search.query.backspace();
+                query_changed = true;
+            }
+            if (query_changed) {
+                for (search.results) |r| r.deinit(init.gpa);
+                init.gpa.free(search.results);
+                search.results = registry.search(init.gpa, search.query.slice(), reg_state, db_cache_state) catch &.{};
+                search.selection = 0;
+                search.scroll = 0;
+            }
+
+            if (search.results.len == 0) return false;
+            if (rl.isKeyPressed(.down)) search.selection = @min(search.selection + 1, search.results.len - 1);
+            if (rl.isKeyPressed(.up)) search.selection -|= 1;
+
+            if (rl.isKeyPressed(.enter)) {
+                if (task_runner.isRunning()) {
+                    ui_state.setStatus("Install already in progress");
+                    return false;
+                }
+                const picked = search.results[search.selection];
+                const source = try std.fmt.allocPrint(init.gpa, "{s}:{s}", .{ picked.registry_name, picked.metadata.id });
+                defer init.gpa.free(source);
+                task_runner.submitInstall(.{
+                    .state = reg_state,
+                    .db_cache = db_cache_state,
+                    .config = registry_config,
+                }, source) catch |err| {
+                    ui_state.setStatusFmt("Submit failed: {s}", .{@errorName(err)});
+                    return false;
+                };
+                search.installing_index = search.selection;
+                ui_state.setStatusFmt("Installing {s}…", .{source});
             }
             return false;
         },
