@@ -1218,14 +1218,17 @@ fn renderMemoryView(
     headerInfo(panel, header, TEXT_DIM);
 
     var cy = panel.y + layout.HEADER_H + 4;
-    drawTextFit(
-        panel.x + 8,
-        cy,
-        panel.w - 16,
-        "ADDR  00 01 02 03   04 05 06 07   08 09 0A 0B   0C 0D 0E 0F   ASCII",
-        layout.FONT_SIZE_SMALL,
-        TEXT_DIM,
-    );
+    // Header labels are placed at the SAME per-byte x offsets as the data
+    // rows below. Rendering the header as one long string drifted a few
+    // pixels per byte (monospace-advance width vs HEX_BYTE_W disagree),
+    // which misaligned every column after the first group.
+    drawText(panel.x + 8, cy, "ADDR", layout.FONT_SIZE_SMALL, TEXT_DIM);
+    for (0..16) |col| {
+        var hdr_buf: [4]u8 = undefined;
+        const hdr = std.fmt.bufPrint(&hdr_buf, "{X:0>2}", .{col}) catch "??";
+        drawText(memoryByteX(panel.x, @intCast(col)), cy, hdr, layout.FONT_SIZE_SMALL, TEXT_DIM);
+    }
+    drawText(memoryAsciiX(panel.x), cy, "ASCII", layout.FONT_SIZE_SMALL, TEXT_DIM);
     cy += layout.LINE_H_SMALL + 2;
     rl.drawLine(panel.x + 4, cy - 1, panel.x + panel.w - 4, cy - 1, SEPARATOR);
 
@@ -1442,13 +1445,32 @@ fn renderOverlay(
     installed_roms: []const models.InstalledRom,
 ) void {
     rl.drawRectangle(0, 0, ui.screen_w, ui.screen_h, rl.Color{ .r = 0, .g = 0, .b = 0, .a = 150 });
+
+    // Panel size is content-aware for the ROM library: a lot of recents +
+    // installed ROMs would overflow the old fixed 320px height. Grow to fit
+    // up to the available screen area; any residual overflow is scrolled
+    // inside the content area.
+    const base_w: i32 = 520;
+    const base_h: i32 = 320;
+    const desired_h: i32 = switch (ui_state.overlay) {
+        .recent_roms => recentOverlayDesiredHeight(recent_roms, installed_roms),
+        .registry_search => |*search| registrySearchDesiredHeight(search),
+        else => base_h,
+    };
+    const panel_w = @min(base_w, ui.screen_w - 48);
+    const panel_h = @max(@min(desired_h, ui.screen_h - 48), 160);
     const overlay = layout.PanelRect{
-        .x = @max(@divTrunc(ui.screen_w - 520, 2), 24),
-        .y = @max(@divTrunc(ui.screen_h - 320, 2), 24),
-        .w = @min(520, ui.screen_w - 48),
-        .h = @min(320, ui.screen_h - 48),
+        .x = @max(@divTrunc(ui.screen_w - panel_w, 2), 24),
+        .y = @max(@divTrunc(ui.screen_h - panel_h, 2), 24),
+        .w = panel_w,
+        .h = panel_h,
     };
     drawPanel(overlay, "OVERLAY");
+
+    // Clip content rendering to the panel body so any off-by-a-row overflow
+    // doesn't spill past the panel's border.
+    beginPanelClip(overlay);
+    defer endPanelClip();
 
     switch (ui_state.overlay) {
         .recent_roms => renderRecentRomOverlay(overlay, recent_roms, installed_roms, ui_state.recent_selection, ui_state.pending_remove),
@@ -1457,6 +1479,34 @@ fn renderOverlay(
         .registry_search => |*search| renderRegistrySearchOverlay(overlay, search, installed_roms),
         .none => {},
     }
+}
+
+fn recentOverlayDesiredHeight(
+    recent_roms: []const persistence.RecentRom,
+    installed_roms: []const models.InstalledRom,
+) i32 {
+    const unique_installed = blk: {
+        var n: usize = 0;
+        for (installed_roms) |rom| {
+            if (!isInstalledPathInRecents(recent_roms, rom.local.path)) n += 1;
+        }
+        break :blk n;
+    };
+    const recents_shown = @min(recent_roms.len, persistence.MAX_RECENT_ROMS);
+    var rows: i32 = 0;
+    if (unique_installed > 0) rows += 1 + @as(i32, @intCast(unique_installed)); // "INSTALLED" header + entries
+    if (recents_shown > 0) rows += 1 + @as(i32, @intCast(recents_shown)); // "RECENT" header + entries
+    if (rows == 0) rows = 1; // "No ROMs yet…" placeholder line
+    // Panel title + subtitle take ~52px; each row LINE_H; section gap 6px.
+    const section_gap: i32 = if (unique_installed > 0 and recents_shown > 0) 6 else 0;
+    return layout.HEADER_H + 6 + 22 + rows * layout.LINE_H + section_gap + 16;
+}
+
+fn registrySearchDesiredHeight(search: *const ui_mod.RegistrySearchState) i32 {
+    const visible_rows: i32 = 10;
+    const result_rows: i32 = @max(@min(@as(i32, @intCast(search.results.len)), visible_rows), 1);
+    // Title bar + subtitle + search box + gap + rows + bottom padding.
+    return layout.HEADER_H + 6 + 22 + 22 + 10 + result_rows * layout.LINE_H + 14;
 }
 
 fn isInstalledPathInRecents(recents: []const persistence.RecentRom, path: []const u8) bool {
